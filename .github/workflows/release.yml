@@ -1,12 +1,14 @@
 # Every push to main whose packages/extension/package.json version has no tag yet is released:
 # tag v<version> + GitHub release with the .vsix and that version's CHANGELOG section, then the stores.
 # Pushes that don't change the version publish nothing (and warn if the extension changed anyway).
+# Run by hand (Run workflow) to publish the current version's released .vsix to the stores missing it.
 #
 # Open VSX: trusted publishing (OIDC, no secret), registered for this workflow at
 # open-vsx.org/user-settings/trusted-publishers; enabled by the repository variable
 # OPENVSX_TRUSTED_PUBLISHING=true. An OVSX_PAT secret, if present, is used instead.
 # VS Code Marketplace: through Microsoft Entra ID when the repository variables AZURE_CLIENT_ID and
-# AZURE_TENANT_ID name a managed identity federated with this workflow (no secret, nothing expires); or
+# AZURE_TENANT_ID name the Entra app "treeline-release", federated with this repo's main branch and a
+# Contributor of the publisher (check it with the Marketplace access workflow; no secret, nothing expires); or
 # with a VSCE_PAT secret (global Azure DevOps PATs are retired on 2026-12-01); otherwise the run summary
 # says to upload the .vsix at marketplace.visualstudio.com/manage.
 name: Release
@@ -36,7 +38,10 @@ jobs:
         run: |
           v=$(node -p "require('./packages/extension/package.json').version")
           echo "version=$v" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo "new=true" >> "$GITHUB_OUTPUT"
+            echo "Run by hand: publishing v$v to the stores that don't have it yet." >> "$GITHUB_STEP_SUMMARY"
+          elif git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
             echo "new=false" >> "$GITHUB_OUTPUT"
             echo "v$v is already released: nothing to publish." >> "$GITHUB_STEP_SUMMARY"
             if ! git diff --quiet "v$v" HEAD -- packages/extension packages/webview packages/shared; then
@@ -73,7 +78,13 @@ jobs:
       - run: pnpm test
       - run: pnpm package
       - name: GitHub release (creates the tag)
-        run: gh release create "$TAG" packages/extension/treeline.vsix --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
+        # Already released (a run by hand): publish exactly the .vsix attached to that release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release download "$TAG" -p treeline.vsix -D packages/extension --clobber
+          else
+            gh release create "$TAG" packages/extension/treeline.vsix --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
+          fi
       - name: Sign in to Azure as the Marketplace publishing identity
         if: vars.AZURE_CLIENT_ID != ''
         uses: azure/login@v3

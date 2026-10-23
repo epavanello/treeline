@@ -84,10 +84,13 @@ and a GitHub release (notes = that version's CHANGELOG section, required), then 
 - **Open VSX**: trusted publishing (GitHub OIDC, no secret), active once the repository variable
   `OPENVSX_TRUSTED_PUBLISHING` is `true` (set after the namespace claim EclipseFdn/open-vsx.org#14627 is
   approved and the trusted publisher is registered). Until then the step is skipped with a notice.
-- **VS Code Marketplace**: automatic through **Microsoft Entra ID** once the repository variables
-  `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` are set: a user-assigned managed identity in Azure with a federated
-  credential for GitHub Actions (`repo:epavanello/treeline:ref:refs/heads/main`), added once as a Contributor
-  of the publisher using the ID the "Marketplace identity" step prints in the run summary. `azure/login` then
+- **VS Code Marketplace**: automatic through **Microsoft Entra ID**: the repository variables
+  `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` name the Entra app `treeline-release` (in the owner's Default
+  Directory), whose federated credential trusts this repo's `main` (GitHub's subject format with IDs:
+  `repo:epavanello@47756116/treeline@1430965024:ref:refs/heads/main`). Its Marketplace identity
+  `6dacc254-a6f1-6110-bbf1-8a2ea6c20dac` is a Contributor of the publisher; the **Marketplace access**
+  workflow (run by hand) checks the whole chain. **Run workflow** on Release republishes the current
+  version's `.vsix` to any store that lacks it. `azure/login` then
   `vsce publish --azure-credential`; no secret, nothing to renew. A `VSCE_PAT` secret still works until
   global Azure DevOps PATs are retired (2026-12-01). With neither, the run summary links the `.vsix` to
   upload by hand at marketplace.visualstudio.com/manage/publishers/epavanello (… → Update).
