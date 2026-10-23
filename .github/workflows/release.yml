@@ -1,18 +1,22 @@
-# Push a tag matching the version in packages/extension/package.json (e.g. v0.1.0) to publish it to the
-# VS Code Marketplace and Open VSX, then attach the .vsix to a GitHub release.
-# Secrets: OVSX_PAT (open-vsx.org token). VSCE_PAT (Azure DevOps token, Marketplace: Manage) is optional:
-# without it, upload the .vsix from the GitHub release at marketplace.visualstudio.com/manage.
+# Push a tag matching the version in packages/extension/package.json (e.g. v0.1.1) to publish it to
+# Open VSX and attach the .vsix to a GitHub release.
+# Open VSX: trusted publishing (OIDC, no secret), registered for this workflow at
+# open-vsx.org/user-settings/trusted-publishers. An OVSX_PAT secret, if present, takes precedence.
+# VS Code Marketplace: only with a VSCE_PAT secret (an Azure DevOps token, which now needs an Azure
+# subscription); otherwise upload the release's .vsix at marketplace.visualstudio.com/manage.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    # v0.1.0 was published by hand, before trusted publishing could be registered
+    tags: ['v*', '!v0.1.0']
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # OIDC token for Open VSX trusted publishing
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
@@ -30,12 +34,11 @@ jobs:
       - run: pnpm package
       - name: Publish to the VS Code Marketplace
         if: env.VSCE_PAT != ''
-        run: pnpm --filter treeline exec vsce publish --no-dependencies --packagePath treeline.vsix
+        run: pnpm --filter treeline exec vsce publish --no-dependencies --skip-duplicate --packagePath treeline.vsix
       - name: Publish to Open VSX
-        # The namespace must exist before the first publish; afterwards create-namespace just fails
-        run: |
-          pnpm --filter treeline exec ovsx create-namespace epavanello || true
-          pnpm --filter treeline exec ovsx publish treeline.vsix
+        run: >-
+          pnpm --filter treeline exec ovsx publish treeline.vsix --skip-duplicate
+          ${{ secrets.OVSX_PAT == '' && '--trusted-publishing' || '' }}
       - name: GitHub release with the .vsix and this version's changelog
         run: |
           awk -v v="${GITHUB_REF_NAME#v}" '/^## /{p=($2==v); next} p' packages/extension/CHANGELOG.md > notes.md

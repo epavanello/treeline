@@ -52,9 +52,10 @@ server-side (`--grep`), a WebviewPanelSerializer so the panel survives window re
 Releases go to the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and Windsurf install from
 Open VSX) as `epavanello.treeline`: bump `version` in `packages/extension/package.json`, add a section to
 `packages/extension/CHANGELOG.md`, push a `v<version>` tag. `.github/workflows/release.yml` publishes to
-Open VSX (`OVSX_PAT` secret) and creates the GitHub release with the `.vsix`. The Marketplace needs an Azure
-DevOps token, which now requires an Azure subscription: unless a `VSCE_PAT` secret exists, upload that `.vsix`
-by hand at marketplace.visualstudio.com/manage/publishers/epavanello (Update).
+Open VSX with trusted publishing (OIDC, no secret) and creates the GitHub release with the `.vsix`. The
+Marketplace needs an Azure DevOps token, which now requires an Azure subscription: unless a `VSCE_PAT` secret
+exists, upload that `.vsix` by hand at marketplace.visualstudio.com/manage/publishers/epavanello (Update).
+0.1.0 was uploaded by hand to both stores; the Open VSX namespace claim is EclipseFdn/open-vsx.org#14627.
 
 ## Layout
 
