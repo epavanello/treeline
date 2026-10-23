@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+- Branch badges in the graph show the same hover card as the branch chips and the branch list, with the
+  same right-click actions
+- Show only some branches, or hide the noisy ones: "Show Only / Also Show / Stop Showing / Hide This
+  Branch" in every branch's menu, and an eye button in the branch list, which now opens with Shown and
+  Hidden sections
+- Every branch chip shows where it stands against the compare base (↑↓) and what there is to push or pull,
+  like the branch list
+- Go to HEAD button in the toolbar: selects the commit you're on and scrolls to it
+- The + of the Worktrees, Branches and Tags rows sits at the right of their title
+- The Worktrees view in the Source Control sidebar is gone: the Worktrees row in the graph covers it (open, bring to the
+  main worktree, remove, prune)
+- New README and screenshots
+
 ## 0.3.0
 
 - New worktree (+ in the Worktrees row and the sidebar) is a searchable picker: a free local branch, a

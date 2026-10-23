@@ -6,33 +6,23 @@ import { RevisionProvider, SCHEME } from './diff';
 import { Git } from './git';
 import { GraphPanel } from './panel';
 import { getBuiltinGit, Repos } from './repos';
-import { registerWorktreeView, WorktreeView } from './worktreeView';
 
 export async function activate(ctx: vscode.ExtensionContext) {
   const builtin = await getBuiltinGit();
   const git = new Git(builtin?.git.path ?? 'git');
-  /** After any change: reload the graph and the Worktrees view. */
-  const refresh = () => (GraphPanel.post({ event: 'refresh' }), worktrees.refresh());
-  const repos = new Repos(git, builtin, refresh, () => {
-    GraphPanel.post({ event: 'repos' });
-    worktrees.refresh();
-  });
-  /** Actions whose git commands are running, by `actionTarget`: shown as busy in the UI. */
-  const busy = new Map<string, Action>();
-  const worktrees = new WorktreeView(git, repos, busy);
-  /** Every action goes through here, from the graph or the Worktrees view. */
+  const refresh = () => GraphPanel.post({ event: 'refresh' });
+  const repos = new Repos(git, builtin, refresh, () => GraphPanel.post({ event: 'repos' }));
+  /** Every action goes through here: shown as busy once its prompts are answered, then a reload. */
   const run = async (repo: string, action: Action) => {
     const key = actionTarget(action);
-    const setBusy = (on: boolean) => {
-      if (on) busy.set(key, action);
-      else busy.delete(key);
-      GraphPanel.post({ event: 'busy', key, busy: on });
-      worktrees.refresh();
-    };
+    let started = false;
     try {
-      await runAction(git, repo, action, () => setBusy(true));
+      await runAction(git, repo, action, () => {
+        started = true;
+        GraphPanel.post({ event: 'busy', key, busy: true });
+      });
     } finally {
-      if (busy.has(key)) setBusy(false);
+      if (started) GraphPanel.post({ event: 'busy', key, busy: false });
       refresh();
     }
   };
@@ -52,7 +42,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     repos,
     status,
-    ...registerWorktreeView(worktrees, repos, run),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionProvider(git)),
     vscode.commands.registerCommand('treeline.view', () => GraphPanel.show(ctx, services)),
     vscode.commands.registerCommand('treeline.fetch', async () => {

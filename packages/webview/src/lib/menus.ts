@@ -85,6 +85,8 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           ]),
           ...worktreeItems(app.data?.worktrees.find((w) => w.path === worktree)),
           sep,
+          ...visibility(ref.name),
+          sep,
           ...when(!isCurrent, [
             compareWith(ref.name),
             merge(ref.name),
@@ -173,6 +175,8 @@ export function menuItems(target: MenuTarget): MenuItem[] {
               command: `git worktree add -b ${local} ../${repoName()}-${local.replace(/\//g, '-')} ${ref.name}`
             }
           },
+          sep,
+          ...visibility(ref.name),
           sep,
           compareWith(ref.name),
           merge(ref.name),
@@ -351,6 +355,46 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     sep,
     { label: 'Copy Commit Hash', run: copy(commit.hash) },
     { label: 'Copy Commit Subject', run: copy(commit.subject) }
+  ];
+}
+
+/** Show only a branch, add it to or remove it from the shown ones, or hide it from "all". */
+function visibility(name: string): MenuItem[] {
+  const shown = app.branches.includes(name);
+  const hidden = app.hidden.includes(name);
+  return [
+    ...when(!(shown && app.branches.length === 1), [
+      {
+        label: 'Show Only This Branch',
+        run: () => app.setBranches([name]),
+        hint: `The graph shows just the history of ${name}.`
+      }
+    ]),
+    ...when(app.branches.length && !shown, [
+      {
+        label: 'Also Show This Branch',
+        run: () => app.setBranches([...app.branches, name]),
+        hint: `Adds ${name} to the branches the graph shows.`
+      }
+    ]),
+    ...when(shown, [
+      {
+        label: 'Stop Showing This Branch',
+        run: () => app.setBranches(app.branches.filter((b) => b !== name)),
+        hint: `Removes ${name} from the branches the graph shows.`
+      }
+    ]),
+    hidden
+      ? {
+          label: 'Unhide This Branch',
+          run: () => app.toggleHidden(name),
+          hint: `Brings the commits only ${name} has back into the graph.`
+        }
+      : {
+          label: 'Hide This Branch',
+          run: () => app.toggleHidden(name),
+          hint: `Leaves out the commits only ${name} has; what it shares with other branches stays. Undo it from the Branches filter or this menu.`
+        }
   ];
 }
 

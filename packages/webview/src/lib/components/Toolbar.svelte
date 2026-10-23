@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CloudDownload, RefreshCw, Rows3, Search } from '@lucide/svelte';
+  import { CloudDownload, LocateFixed, RefreshCw, Rows3, Search } from '@lucide/svelte';
   import * as Popover from '$lib/components/ui/popover';
   import { DEFAULT_VIEW } from '@treeline/shared';
   import { app } from '$lib/app.svelte';
@@ -174,6 +174,17 @@
         </button>
       </Popover.Content>
     </Popover.Root>
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      hint={{
+        title: 'Go to HEAD',
+        body: `Selects the commit you're on${app.data?.currentBranch ? ` (${app.data.currentBranch})` : ''} and scrolls to it.`
+      }}
+      icon={LocateFixed}
+      disabled={!app.data?.head}
+      onclick={() => app.data?.head && app.reveal(app.data.head)}
+    />
     <Button
       variant="ghost"
       size="icon-xs"

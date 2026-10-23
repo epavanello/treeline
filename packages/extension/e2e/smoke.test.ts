@@ -30,6 +30,7 @@ const query = (): GraphQuery => ({
   repo: dir,
   branches: [],
   authors: [],
+  hidden: [],
   base: null,
   focus: [],
   showRemotes: true,

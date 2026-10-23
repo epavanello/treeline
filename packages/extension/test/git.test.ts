@@ -18,6 +18,7 @@ const query = (over = {}) => ({
   repo: dir,
   branches: [],
   authors: [],
+  hidden: [],
   base: null,
   focus: [],
   showRemotes: true,
@@ -67,6 +68,15 @@ describe('getGraph', () => {
     const [tag] = g.tags;
     expect(tag).toMatchObject({ ref: { name: 'v1.0', annotated: true }, subject: 'Merge feature' });
     expect(tag.hash).toBe(g.commits.find((c) => c.subject === 'Merge feature')!.hash);
+  });
+
+  it('hides branches: their own commits go, what they share stays', async () => {
+    const subjects = async (hidden: string[]) =>
+      (await git.getGraph(query({ hidden }))).commits.map((c) => c.subject);
+    expect(await subjects(['topic'])).not.toContain('Topic commit');
+    expect(await subjects(['topic'])).toContain('Merge feature');
+    // feature is merged into main: hiding it leaves its commits, main still has them
+    expect(await subjects(['feature'])).toContain('Feature work 2');
   });
 
   it('paginates and hides remotes', async () => {

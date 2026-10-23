@@ -9,7 +9,7 @@
   import ActionMenu from './ActionMenu.svelte';
   import NavStrip from './NavStrip.svelte';
   import RefCard from './RefCard.svelte';
-  import WorktreeState from './WorktreeState.svelte';
+  import BranchState from './BranchState.svelte';
   import Tip from './Tip.svelte';
 
   /** The local branches or the tags, most recent first, as a row of chips. */
@@ -59,18 +59,7 @@
                   <Icon class="size-3.5 shrink-0" />
                 {/if}
                 <span class="truncate">{r.ref.name}</span>
-                {#if kind === 'heads'}
-                  {@const up = r.ref.upstream}
-                  <WorktreeState
-                    changes={false}
-                    status={{
-                      changes: 0,
-                      ahead: up?.ahead ?? 0,
-                      behind: up?.behind ?? 0,
-                      upstream: up && !up.gone ? up.name : null
-                    }}
-                  />
-                {/if}
+                {#if kind === 'heads'}<BranchState {r} />{/if}
                 <span class="shrink-0 text-muted-foreground tabular-nums">{since(r.date)}</span>
               </button>
             {/snippet}

@@ -11,6 +11,14 @@
   let { scroller = $bindable() }: { scroller?: HTMLElement } = $props();
 
   const commits = $derived(app.data?.commits ?? []);
+  /** Branch and tag details by `kind:name`, for the badges' hover cards. */
+  const summaries = $derived(
+    new Map(
+      [...(app.data?.heads ?? []), ...(app.data?.remoteHeads ?? []), ...(app.data?.tags ?? [])].map(
+        (r) => [`${r.ref.kind}:${r.ref.name}`, r]
+      )
+    )
+  );
   const gw = $derived(graphWidth(app.graph.width));
   // Graph and Description are always there; Description takes whatever the others leave
   const graphW = $derived(app.view.widths.graph ?? Math.min(gw, 320));
@@ -157,6 +165,7 @@
                   <RefBadge
                     {ref}
                     {remote}
+                    card={summaries.get(`${ref.kind}:${ref.name}`)}
                     onremotemenu={(e, r) => open(e, menuItems({ kind: 'ref', ref: r, commit: c }))}
                     color={laneColor(row.color)}
                     current={ref.kind === 'head' && ref.name === app.data?.currentBranch}

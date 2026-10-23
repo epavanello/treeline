@@ -99,10 +99,13 @@ export class Git {
       : q.branches.length
         ? q.branches
         : [
+            // --exclude applies to the next --branches / --remotes, with names relative to them
+            ...exclude(q.hidden, refs, 'head'),
             '--branches',
             '--tags',
-            ...(q.showRemotes ? ['--remotes'] : []),
-            ...(head ? ['HEAD'] : [])
+            ...(q.showRemotes ? [...exclude(q.hidden, refs, 'remote'), '--remotes'] : []),
+            // Hiding the current branch hides HEAD too, or nothing would change
+            ...(head && !(currentBranch && q.hidden.includes(currentBranch)) ? ['HEAD'] : [])
           ];
     const stashBases = [...new Set(stashes.map((s) => s.stashBase!))];
     const log =
@@ -600,6 +603,12 @@ export function mergeDiff(
   for (const f of files) [f.additions, f.deletions] = counts.get(f.path) ?? [null, null];
   return files;
 }
+
+/** `--exclude=<name>` for the hidden refs of one kind, glob characters escaped. */
+const exclude = (hidden: string[], refs: RefSummary[], kind: 'head' | 'remote') =>
+  refs
+    .filter((r) => r.ref.kind === kind && hidden.includes(r.ref.name))
+    .map((r) => `--exclude=${r.ref.name.replace(/[*?[\\]/g, '\\$&')}`);
 
 const lines = (s: string) => s.split(/\r?\n/).filter(Boolean);
 const words = (s: string) => s.split(' ').filter(Boolean);

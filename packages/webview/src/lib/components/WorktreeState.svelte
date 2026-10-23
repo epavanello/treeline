@@ -22,11 +22,11 @@
 </script>
 
 <script lang="ts">
-  import { ArrowDown, ArrowUp, Check, CloudOff, FilePen } from '@lucide/svelte';
+  import { Check, CloudDownload, CloudOff, CloudUpload, FilePen } from '@lucide/svelte';
 
   /**
-   * A worktree's local status: a file-with-pen count of uncommitted changes (or ✓ clean), then ↑ commits to push and
-   * ↓ commits to pull relative to its upstream, or a crossed cloud when it has none yet.
+   * A worktree's local status: a file-with-pen count of uncommitted changes (or ✓ clean), then ☁↑ commits to push and
+   * ☁↓ commits to pull relative to its upstream, or a crossed cloud when it has none yet.
    */
   let {
     status: s,
@@ -58,13 +58,13 @@
     </span>
   {/if}
   {#if s.ahead}
-    <span class="inline-flex items-center">
-      <ArrowUp class={icon} />{s.ahead}
+    <span class="inline-flex items-center gap-0.5">
+      <CloudUpload class={icon} />{s.ahead}
     </span>
   {/if}
   {#if s.behind}
-    <span class="inline-flex items-center">
-      <ArrowDown class={icon} />{s.behind}
+    <span class="inline-flex items-center gap-0.5">
+      <CloudDownload class={icon} />{s.behind}
     </span>
   {/if}
 </span>

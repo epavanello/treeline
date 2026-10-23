@@ -20,6 +20,7 @@ const PAGE = 300;
 interface Persisted {
   repo?: string;
   branches?: string[];
+  hidden?: string[];
   authors?: string[];
   showRemotes?: boolean;
   base?: string | null;
@@ -31,6 +32,8 @@ class App {
   repos = $state<Repo[]>([]);
   repo = $state<string | null>(null);
   branches = $state<string[]>([]);
+  /** Branches left out of "all" (see GraphQuery.hidden). */
+  hidden = $state<string[]>([]);
   authors = $state<string[]>([]);
   /** Every author seen in this repo's loaded commits, for the author filter. */
   knownAuthors = $state<string[]>([]);
@@ -152,6 +155,7 @@ class App {
   async init() {
     const saved = vscode.getState<Persisted>() ?? {};
     this.branches = saved.branches ?? [];
+    this.hidden = saved.hidden ?? [];
     this.authors = saved.authors ?? [];
     this.showRemotes = saved.showRemotes ?? true;
     this.base = saved.base ?? null;
@@ -178,7 +182,7 @@ class App {
   async setRepo(repo: string | null, keepFilters = false) {
     this.repo = repo;
     if (!keepFilters) {
-      [this.branches, this.authors, this.knownAuthors] = [[], [], []];
+      [this.branches, this.hidden, this.authors, this.knownAuthors] = [[], [], [], []];
       this.base = null;
     }
     this.maxCommits = PAGE;
@@ -191,6 +195,7 @@ class App {
     vscode.setState<Persisted>({
       repo: this.repo ?? undefined,
       branches: $state.snapshot(this.branches),
+      hidden: $state.snapshot(this.hidden),
       authors: $state.snapshot(this.authors),
       showRemotes: this.showRemotes,
       base: this.base,
@@ -207,6 +212,7 @@ class App {
       const data = await host.getGraph({
         repo: this.repo,
         branches: $state.snapshot(this.branches),
+        hidden: $state.snapshot(this.hidden),
         authors: $state.snapshot(this.authors),
         showRemotes: this.showRemotes,
         maxCommits: this.maxCommits,
@@ -258,8 +264,26 @@ class App {
 
   setBranches(branches: string[]) {
     this.branches = branches;
+    // A branch can't be both shown on purpose and hidden
+    this.hidden = this.hidden.filter((b) => !branches.includes(b));
     this.maxCommits = PAGE;
     void this.refresh();
+  }
+
+  /** Hide a branch from "all", or bring it back. */
+  toggleHidden(name: string) {
+    this.hidden = this.hidden.includes(name)
+      ? this.hidden.filter((b) => b !== name)
+      : [...this.hidden, name];
+    this.branches = this.branches.filter((b) => b !== name);
+    this.maxCommits = PAGE;
+    void this.refresh();
+  }
+
+  /** Back to every branch: nothing picked, nothing hidden. */
+  showAllBranches() {
+    this.hidden = [];
+    this.setBranches([]);
   }
 
   setAuthors(authors: string[]) {

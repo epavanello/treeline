@@ -10,7 +10,7 @@ import type { Repos } from './repos';
 export interface Services {
   git: Git;
   repos: Repos;
-  /** Runs an action, showing it as busy, then reloads the graph and the Worktrees view. */
+  /** Runs an action, showing it as busy, then reloads the graph. */
   run: (repo: string, action: Action) => Promise<void>;
   commitMessage: (repo: string) => Promise<void>;
 }

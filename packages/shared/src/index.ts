@@ -58,6 +58,11 @@ export interface GraphQuery {
   repo: string;
   /** Branch names to show; empty = all. */
   branches: string[];
+  /**
+   * Branches (local or remote) left out of "all": the commits only they have disappear, what they
+   * share with other branches stays. Ignored when `branches` is set.
+   */
+  hidden: string[];
   /** Author names to show; empty = all. */
   authors: string[];
   showRemotes: boolean;

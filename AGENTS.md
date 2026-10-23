@@ -49,19 +49,22 @@ branch with main, review diffs with working language features, juggle worktrees 
    run with `repo` = that worktree's folder), `app.reveal()` jumps to a commit loading more history if needed; double-click opens;
    right-click `worktreeItems()` in `menus.ts`), the local branches and the tags (`RefStrip`, from
    `GraphData.heads/tags`, most recent first; local branches only, to keep the team's noise out). The toolbar's
-   `BranchPicker` covers every branch (`heads` + `remoteHeads`), each with `RefSummary.vsBase` (ahead/behind
-   the compare base by hash, one `for-each-ref --format=%(ahead-behind:<base>)`, git 2.41+), a `RefCard` on
-   hover and the ref's context menu. Rows are toggled from the toolbar (`ViewSettings`, kept in
+   `BranchPicker` covers every branch (`heads` + `remoteHeads`). Branch chips, picker rows and graph badges
+   share `BranchState` (`RefSummary.vsBase`: ahead/behind the compare base by hash, one
+   `for-each-ref --format=%(ahead-behind:<base>)`, git 2.41+; cloud icons for the upstream), the `RefCard`
+   hover card and the ref's context menu. **Hidden branches** (`GraphQuery.hidden`, the opposite of
+   `branches`): `--exclude=<name>` before `--branches`/`--remotes` drops the commits only they have; set from
+   the picker's eye button or the "Show Only / Also Show / Stop Showing / Hide This Branch" menu items. Rows are toggled from the toolbar (`ViewSettings`, kept in
    the extension's `globalState`, which also holds the commit list's column visibility and widths:
    drag a header edge, double-click to reset; `DEFAULT_VIEW` in `shared` fills fields missing from older
    saved settings).
-   Their + (and the sidebar's) runs `newWorktree`: a native QuickPick of free local branches, remote
+   Their + runs `newWorktree`: a native QuickPick of free local branches, remote
    branches, and "new branch from <compare base>" (fetched first, `--no-track`) or from any branch; the name
    of a new branch is an InputBox validated with `git check-ref-format`. `addTag` suggests the next semver.
-   The native **Worktrees view** in the Source Control sidebar
-   (`worktreeView.ts`) has inline open/remove, terminal, reveal, "Bring Branch to Main Worktree" (remove the
-   worktree, check the branch out in the main one, carrying uncommitted changes through a stash) and "Remove
-   Worktree and Delete Branch".
+   A worktree's menu has open in a new window, "Bring Branch to Main Worktree" (remove the worktree, check
+   the branch out in the main one, carrying uncommitted changes through a stash) and "Remove Worktree and
+   Delete Branch". (A native Worktrees view in the Source Control sidebar existed until 0.4.0: the graph
+   page covers it.)
 4. **Fewer prompts**: actions ask only for a needed name or before losing something: uncommitted changes,
    commits no other ref contains (`rev-list <b> --not --exclude=<b> --branches --remotes --tags`), remote
    state, stashes. No option screens: git defaults, plus explicit variants (Force Push…).
@@ -107,7 +110,6 @@ packages/
     src/extension.ts  activate(): wires everything up
     src/git.ts        vscode-free git CLI layer (log, refs, stashes, details, diffs). Unit-tested.
     src/actions.ts    every write operation; native prompts only when needed (see "Fewer prompts")
-    src/worktreeView.ts  the Worktrees TreeView in the Source Control sidebar + its commands
     src/commitMessage.ts  commit message generation (Claude CLI, fallback vscode.lm)
     src/repos.ts      repo discovery + change events via the built-in vscode.git API (fallback: watcher)
     src/diff.ts       `treeline:` TextDocumentContentProvider + vscode.diff
@@ -122,8 +124,10 @@ packages/
     src/lib/menus.ts        context menus as data
     src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, NavStrip (+ its rows
                             WorktreeStrip, RefStrip), BranchPicker (the branch filter), RefCard,
-                            MultiFilter (authors, base), ActionMenu, RefBadge, WorktreeState, Tip
-    preview/                runs the webview in a plain browser with a mocked host
+                            BranchState, MultiFilter (authors, base), ActionMenu, RefBadge,
+                            WorktreeState, Tip
+    preview/                runs the webview in a plain browser with a mocked host; `?scene=branches|
+                            review|menu` (scenes.ts) stages the README screenshots
 ```
 
 ## How it works
@@ -131,10 +135,9 @@ packages/
 - **RPC**: the webview calls `host.method(...args)` (`src/lib/rpc.ts`); `panel.ts` dispatches to a `HostApi`
   object and replies `{ id, result | error }`. The host pushes `{ event: 'refresh' | 'repos' }`.
   Adding a capability = add it to `HostApi` in `shared`, implement it in `panel.ts`, call it from the webview.
-- **Actions**: the webview (or the Worktrees view) sends an `Action` (`shared`); `plan()` in `actions.ts` turns
+- **Actions**: the webview sends an `Action` (`shared`); `plan()` in `actions.ts` turns
   it into steps (git argv lists, or callbacks such as "open the new worktree"). Adding an action = a variant in
-  `Action`, a `case` in `plan()`, a menu item in `menus.ts`. After every action, `refresh()` reloads the graph
-  and the Worktrees view.
+  `Action`, a `case` in `plan()`, a menu item in `menus.ts`. After every action, `refresh()` reloads the graph.
 - **Refresh**: `vscode.git`'s `repository.state.onDidChange` (debounced 400 ms) → `refresh` → the webview
   reloads the graph keeping its selection.
 - **Paging**: like Git Graph, "load more" re-runs `git log` with a larger `--max-count` (300 per page) so the
@@ -149,8 +152,7 @@ packages/
   Promise, in place of its icon (or over its label, keeping its size). Prefer that to manual loading state.
 - **Busy state**: every action runs through `run()` in `extension.ts`, which posts `{ event: 'busy', key }`
   once its prompts are answered (`key` = `actionTarget(action)`: worktree path, ref name, hash…). The webview
-  (`app.running`, `app.isRunning()`) swaps the icon of whatever it concerns for a spinner; the Worktrees view
-  shows "Removing…" with a spinning icon.
+  (`app.running`, `app.isRunning()`) swaps the icon of whatever it concerns for a spinner.
 - **Tooltips**: every control explains itself. `Button` takes a `hint`, menu items a `hint` field, anything
   else wraps in `Tip` (`{#snippet children(trigger)}` and spread `trigger` on the element). A `Hint` is a
   sentence or `{ title, body, warn, command }`. Write one for every new button or menu item.

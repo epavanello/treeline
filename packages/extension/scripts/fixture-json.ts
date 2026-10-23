@@ -13,6 +13,7 @@ const graph = await git.getGraph({
   repo: dir,
   branches: [],
   authors: [],
+  hidden: [],
   base: null,
   focus: [],
   showRemotes: true,

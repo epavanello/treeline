@@ -3,6 +3,7 @@
   import { Archive, Cloud, FolderGit2, GitBranch, Tag } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import { cn } from '$lib/utils';
+  import { describeStatus } from './WorktreeState.svelte';
 
   /** A branch's or tag's hover card: its commit and how old, its upstream, where it stands vs the base. */
   let { r, footer }: { r: RefSummary; footer: string } = $props();
@@ -76,8 +77,12 @@
     </dd>
   {/if}
   {#if ref.worktree}
+    {@const status = app.data?.worktrees.find((w) => w.path === ref.worktree)?.status}
     <dt class="text-muted-foreground">Worktree</dt>
-    <dd class="font-mono text-[11px] text-muted-foreground">{ref.worktree}</dd>
+    <dd>
+      {#if status}{describeStatus(status)}{/if}
+      <span class="block font-mono text-[11px] text-muted-foreground">{ref.worktree}</span>
+    </dd>
   {/if}
 </dl>
 <p class="border-t pt-1.5 text-[11px] text-muted-foreground">{footer}</p>

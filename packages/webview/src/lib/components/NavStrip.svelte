@@ -2,8 +2,8 @@
   import type { Snippet } from 'svelte';
 
   /**
-   * A horizontally scrolling row of chips under the toolbar (worktrees, branches, tags). The title,
-   * its count and its action (+) stay pinned on the left in a fixed-width cell, so every row's chips
+   * A horizontally scrolling row of chips under the toolbar (worktrees, branches, tags). The title and
+   * its count (left) and its action (+, right) stay pinned in a fixed-width cell, so every row's chips
    * start at the same place and scroll under it through a fade. With no items it says so.
    */
   let {
@@ -35,11 +35,11 @@
   {onwheel}
 >
   <span
-    class="sticky left-0 z-10 flex h-full w-30 shrink-0 items-center gap-1 bg-linear-to-r from-background from-75% to-transparent pr-4 pl-2 text-muted-foreground"
+    class="sticky left-0 z-10 flex h-full w-32 shrink-0 items-center gap-1 bg-linear-to-r from-background from-[88%] to-transparent pr-4 pl-2 text-muted-foreground"
   >
     <!-- One inline run: the smaller count sits on the label's baseline -->
     <span>{label}<span class="ml-1 text-[10px] tabular-nums opacity-70">{count}</span></span>
-    {@render action?.()}
+    <span class="ml-auto">{@render action?.()}</span>
   </span>
   <div class="flex items-center gap-1.5">
     {#if count}

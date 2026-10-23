@@ -1,6 +1,6 @@
 <script lang="ts">
   import { since, type RefSummary } from '@treeline/shared';
-  import { Check, ChevronDown, Cloud, FolderGit2, GitBranch } from '@lucide/svelte';
+  import { Check, ChevronDown, Cloud, Eye, EyeOff, FolderGit2, GitBranch } from '@lucide/svelte';
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
   import { menuItems, refCommit } from '$lib/menus';
@@ -9,6 +9,7 @@
   import * as Popover from '$lib/components/ui/popover';
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
+  import BranchState from './BranchState.svelte';
   import RefCard from './RefCard.svelte';
   import Tip from './Tip.svelte';
 
@@ -17,16 +18,35 @@
    * with "Show Remote Branches"): how old, where it stands vs the compare base, its card on hover,
    * its actions on right-click (deleting a stale remote branch, say). Ticked branches filter the graph.
    */
+  const all = $derived([
+    ...(app.data?.heads ?? []),
+    ...(app.showRemotes ? (app.data?.remoteHeads ?? []) : [])
+  ]);
+  // Shown (ticked) and hidden branches come first, in their own sections
   const groups = $derived([
-    { heading: 'Local', items: app.data?.heads ?? [] },
-    { heading: 'Remote', items: app.showRemotes ? (app.data?.remoteHeads ?? []) : [] }
+    { heading: 'Shown', items: all.filter((r) => app.branches.includes(r.ref.name)) },
+    { heading: 'Hidden', items: all.filter((r) => app.hidden.includes(r.ref.name)) },
+    ...(['head', 'remote'] as const).map((kind) => ({
+      heading: kind === 'head' ? 'Local' : 'Remote',
+      items: all.filter(
+        (r) =>
+          r.ref.kind === kind &&
+          !app.branches.includes(r.ref.name) &&
+          !app.hidden.includes(r.ref.name)
+      )
+    }))
   ]);
   const label = $derived(
-    app.branches.length === 0
-      ? 'Show All'
-      : app.branches.length === 1
-        ? app.branches[0]
-        : `${app.branches.length} branches`
+    [
+      app.branches.length === 0
+        ? 'Show All'
+        : app.branches.length === 1
+          ? app.branches[0]
+          : `${app.branches.length} shown`,
+      app.hidden.length && `${app.hidden.length} hidden`
+    ]
+      .filter(Boolean)
+      .join(' · ')
   );
 
   function toggle(name: string) {
@@ -48,7 +68,7 @@
         class="max-w-56 justify-between"
         hint={{
           title: 'Branches',
-          body: 'Show only the history of the branches you tick (any number). Each row shows how old the branch is and where it stands against the compare base; hover it for details, right-click it for its actions.'
+          body: 'Tick branches to show only their history, or hide some (eye button) to leave out the commits only they have. Each row shows how old the branch is and where it stands against the compare base; hover it for details, right-click it for its actions.'
         }}
       >
         <span class="truncate">{label}</span>
@@ -66,9 +86,11 @@
             <Command.Item
               value="__all"
               class="py-1 text-[13px]"
-              onSelect={() => app.setBranches([])}
+              onSelect={() => app.showAllBranches()}
             >
-              <Check class={cn('size-4', app.branches.length !== 0 && 'invisible')} />
+              <Check
+                class={cn('size-4', (app.branches.length || app.hidden.length) && 'invisible')}
+              />
               Show All
             </Command.Item>
             {#each groups as g (g.heading)}
@@ -79,7 +101,7 @@
                     {#snippet card()}
                       <RefCard
                         {r}
-                        footer="Click: tick it to filter the graph · Right-click: its actions"
+                        footer="Click: show it (tick) · Eye: hide it · Right-click: its actions"
                       />
                     {/snippet}
                     <Tip content={card} side="right">
@@ -100,7 +122,8 @@
                           <span
                             class={cn(
                               'truncate',
-                              r.ref.name === app.data?.currentBranch && 'font-semibold'
+                              r.ref.name === app.data?.currentBranch && 'font-semibold',
+                              app.hidden.includes(r.ref.name) && 'line-through opacity-60'
                             )}
                           >
                             {r.ref.name}
@@ -108,12 +131,28 @@
                           <span
                             class="ml-auto flex shrink-0 gap-1.5 text-[11px] text-muted-foreground tabular-nums"
                           >
-                            {#if r.vsBase?.ahead}<span class="text-ahead">↑{r.vsBase.ahead}</span
-                              >{/if}
-                            {#if r.vsBase?.behind}<span class="text-behind">↓{r.vsBase.behind}</span
-                              >{/if}
+                            <BranchState {r} />
                             <span class="w-7 text-right">{since(r.date)}</span>
                           </span>
+                          <!-- Hide from "all" (or bring back), without ticking the row -->
+                          <button
+                            class="-my-0.5 rounded-sm p-0.5 opacity-60 hover:bg-accent hover:opacity-100"
+                            title={app.hidden.includes(r.ref.name)
+                              ? 'Unhide: bring its commits back into the graph'
+                              : 'Hide: leave out the commits only this branch has'}
+                            onclick={(e) => {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              app.toggleHidden(r.ref.name);
+                            }}
+                            onpointerdown={(e) => e.stopPropagation()}
+                          >
+                            {#if app.hidden.includes(r.ref.name)}
+                              <Eye class="size-3.5" />
+                            {:else}
+                              <EyeOff class="size-3.5" />
+                            {/if}
+                          </button>
                         </Command.Item>
                       {/snippet}
                     </Tip>

@@ -4,51 +4,56 @@
 
 # Treeline
 
-**A fast, minimal Git Graph for VS Code and Cursor, built for branches, worktrees and reviews.**
+**Git Graph, rebuilt for how you work today: feature branches, rebased PRs, worktrees.**
+For VS Code and Cursor.
 
-![Treeline in VS Code: compare bar, worktrees and the commit graph](docs/hero.png)
+[![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/epavanello.treeline?label=VS%20Code%20Marketplace&color=0a7bbb)](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+![Treeline in VS Code: your branch vs main, worktrees, branches, tags and the commit graph](docs/hero.png)
 
 </div>
 
-[Git Graph](https://github.com/mhutchie/vscode-git-graph) has been unmaintained since 2021. Treeline is a
-from-scratch rewrite (about 3k lines of TypeScript and Svelte 5) that keeps what made it great and adds what
-daily work with feature branches and worktrees actually needs.
+## Why Treeline
 
-## Features
+|     |                                                                                                                                                                                                                                                                   |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🌿  | **Your branch vs main, always on top.** ↑ahead ↓behind are filters: one click shows just those commits. Commits that landed through "Rebase and merge" or a cherry-pick count as merged, and a rewritten history gets a warning instead of thousands of bogus ↑↓. |
+| 📋  | **Review before the PR does.** **Diff** lists every file changed since the fork, uncommitted work included, as a list or a folder tree. Diffs open on your real files, so Go to Definition, errors and links just work.                                           |
+| 🗂️  | **Worktrees, branches and tags at a glance.** One row each, pinned under the compare bar: status, ahead/behind main, what to push or pull. Hover for the full card, click to jump to the commit, **+** to create (worktree picker, next semver tag).              |
+| 🎯  | **See only what matters.** Show only some branches, or hide the noisy ones, from the branch dropdown or any branch's right-click menu. Local and remote branches, with their age and state, in one searchable list.                                               |
+| ✨  | **Commit messages by Claude.** Your local [Claude Code](https://claude.com/claude-code) CLI (or any model your editor provides) writes the message in your repository's style.                                                                                    |
+| 🙅  | **Fewer dialogs, no guessing.** Treeline asks only when something would be lost. Every button and menu item explains itself on hover, and whatever is running shows a spinner.                                                                                    |
+| 📜  | **Everything you loved in Git Graph.** Infinite history, author filter, find, compare any two commits, resizable columns, and menus for checkout, merge, rebase, cherry-pick, revert, reset, tag, push, pull, stash…                                              |
 
-- 🌿 **Your branch vs main, at a glance.** ↑ahead ↓behind, commits tinted by side, the fork point marked.
-  One click to show only what diverged, to rebase or merge, or to list every file changed since the fork
-  (what the pull request will show).
-- 🔍 **Diffs you can navigate.** When a side matches your working tree, the diff opens on the real file, so
-  Go to Definition, errors and links just work. Any older revision opens in a temporary worktree.
-- 🗂️ **Worktrees, first class.** Every worktree with its branch and status (clean, ●changes, ↑↓ upstream),
-  in the graph and in the Source Control sidebar. Open one in a new window, bring its branch back to the
-  main folder with its uncommitted changes, remove it (and its branch), prune the missing ones.
-- ✨ **Commit messages by Claude.** Uses your local [Claude Code](https://claude.com/claude-code) CLI, or any
-  language model your editor provides, and matches your repository's style.
-- 🙅 **Fewer dialogs.** Treeline asks only when something would be lost: uncommitted changes, commits no other
-  branch has, remote state.
-- 📜 **Everything you expect from Git Graph.** Infinite scroll through history, branch and author filters,
-  find, commit details, compare any two commits, and context menus for checkout, branch, merge, rebase,
-  cherry-pick, revert, reset, tag, push, pull, stash and more.
+<table>
+  <tr>
+    <td><img src="docs/branches.png" alt="The branch dropdown: local and remote branches with their state, and a branch's hover card" /></td>
+    <td><img src="docs/review.png" alt="Every change since the fork as a folder tree, next to a worktree's hover card" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Every branch, its state and its card</sub></td>
+    <td align="center"><sub>Review the whole branch; a worktree's card</sub></td>
+  </tr>
+</table>
 
 ## Install
 
-Treeline is not on the Marketplace yet (coming soon, together with Open VSX for Cursor, VSCodium and
-Windsurf). Build it from source:
+Search **Treeline** in the Extensions view, or get it from the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline).
+Open VSX (Cursor, VSCodium, Windsurf) is coming; until then, Cursor installs the `.vsix` from the
+[latest release](https://github.com/epavanello/treeline/releases/latest):
 
 ```bash
-git clone https://github.com/epavanello/treeline && cd treeline
-pnpm install && pnpm package
-code --install-extension packages/extension/treeline.vsix   # or: cursor --install-extension …
+cursor --install-extension treeline.vsix
 ```
 
-Then run **Treeline: View Git Graph**, click **Git Graph** in the status bar, or use the button in the
-Source Control view.
+Then run **Treeline: View Git Graph**, or click **Git Graph** in the status bar.
 
 ## Develop
 
 ```bash
+pnpm install
 pnpm dev        # watch the extension and the webview; press F5 in VS Code to launch it
 pnpm test       # git layer against real temporary repos + graph layout
 pnpm e2e        # the extension inside a real VS Code (actions, diffs, worktrees, commit messages)
@@ -60,8 +65,8 @@ agents alike.
 
 ## Credits
 
-Inspired by [Git Graph](https://github.com/mhutchie/vscode-git-graph) by Michael Hutchison. Treeline is an
-independent reimplementation and shares no code with it.
+Inspired by [Git Graph](https://github.com/mhutchie/vscode-git-graph) by Michael Hutchison (unmaintained
+since 2021). Treeline is an independent, from-scratch reimplementation and shares no code with it.
 
 ## License
 
