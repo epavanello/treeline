@@ -1,0 +1,26 @@
+# Run by hand (Actions → Marketplace access → Run workflow) to check the Entra ID setup the Release workflow
+# uses: signs in as the publishing identity, prints the ID to add as a Contributor of the publisher at
+# marketplace.visualstudio.com/manage/publishers/epavanello (Members), and verifies its publish rights.
+name: Marketplace access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Publishing identity
+        run: |
+          id=$(az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv)
+          echo "**Marketplace publishing identity:** \`$id\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "identity $id"
+      - name: Publish rights on epavanello
+        run: npx --yes @vscode/vsce@4 verify-pat --azure-credential epavanello
