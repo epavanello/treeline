@@ -29,7 +29,10 @@ jobs:
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
       - name: Publish to Open VSX
-        run: pnpm --filter treeline exec ovsx publish treeline.vsix
+        # The namespace must exist before the first publish; afterwards create-namespace just fails
+        run: |
+          pnpm --filter treeline exec ovsx create-namespace epavanello || true
+          pnpm --filter treeline exec ovsx publish treeline.vsix
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
       - name: GitHub release with the .vsix and this version's changelog
