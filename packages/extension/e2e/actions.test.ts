@@ -242,6 +242,20 @@ describe('actions', () => {
     assert.notEqual(rev('origin/main'), rev('main'));
     await act({ type: 'pushBranch', name: 'main', force: true }, true);
     assert.equal(rev('origin/main'), rev('main'));
+
+    // Pull: a branch that isn't checked out is fast-forwarded, the current one is pulled
+    sh('branch', '-q', '--track', 'follower', 'origin/main');
+    sh('checkout', '-q', '-b', 'mover', 'origin/main');
+    writeFileSync(join(dir, 'f.txt'), 'moved\n');
+    sh('add', 'f.txt');
+    sh('commit', '-q', '-m', 'Remote moves');
+    sh('push', '-q', 'origin', 'mover:main');
+    sh('checkout', '-q', 'main');
+    await act({ type: 'updateBranch', name: 'follower' });
+    assert.equal(subject('follower'), 'Remote moves');
+    assert.equal(branch(), 'main');
+    await act({ type: 'updateBranch', name: 'main' });
+    assert.equal(subject('main'), 'Remote moves');
   });
 
   it('adds, brings here and removes worktrees', async () => {
@@ -317,7 +331,7 @@ describe('actions', () => {
       assert.deepEqual(errors, []);
       assert.equal(repo.inputBox.value, 'feat: add notes');
       const prompt = readFileSync(captured, 'utf8');
-      assert.match(prompt, /Recent commit subjects:\nAmended/);
+      assert.match(prompt, /Recent commit subjects:\nRemote moves\nAmended/);
       assert.match(prompt, /New files:\nnotes\.txt/);
     } finally {
       process.env.PATH = path;

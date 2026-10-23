@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { actionTarget, type Action } from '@treeline/shared';
+import { runAction } from './actions';
 import { fillCommitMessage } from './commitMessage';
 import { RevisionProvider, SCHEME } from './diff';
 import { Git } from './git';
@@ -15,11 +17,29 @@ export async function activate(ctx: vscode.ExtensionContext) {
     GraphPanel.post({ event: 'repos' });
     worktrees.refresh();
   });
-  const worktrees = new WorktreeView(git, repos);
+  /** Actions whose git commands are running, by `actionTarget`: shown as busy in the UI. */
+  const busy = new Map<string, Action>();
+  const worktrees = new WorktreeView(git, repos, busy);
+  /** Every action goes through here, from the graph or the Worktrees view. */
+  const run = async (repo: string, action: Action) => {
+    const key = actionTarget(action);
+    const setBusy = (on: boolean) => {
+      if (on) busy.set(key, action);
+      else busy.delete(key);
+      GraphPanel.post({ event: 'busy', key, busy: on });
+      worktrees.refresh();
+    };
+    try {
+      await runAction(git, repo, action, () => setBusy(true));
+    } finally {
+      if (busy.has(key)) setBusy(false);
+      refresh();
+    }
+  };
   const services = {
     git,
     repos,
-    refresh,
+    run,
     commitMessage: (repo: string) => fillCommitMessage(git, repo, builtin?.repositories ?? [])
   };
 
@@ -32,7 +52,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
   ctx.subscriptions.push(
     repos,
     status,
-    ...registerWorktreeView(worktrees, git, repos, refresh),
+    ...registerWorktreeView(worktrees, repos, run),
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionProvider(git)),
     vscode.commands.registerCommand('treeline.view', () => GraphPanel.show(ctx, services)),
     vscode.commands.registerCommand('treeline.fetch', async () => {

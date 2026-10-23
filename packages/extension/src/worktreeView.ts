@@ -5,8 +5,8 @@
  */
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { Action, Worktree } from '@treeline/shared';
-import { openFolder, runAction } from './actions';
+import { ago, type Action, type Worktree } from '@treeline/shared';
+import { openFolder } from './actions';
 import type { Git } from './git';
 import type { Repos } from './repos';
 
@@ -15,30 +15,41 @@ class WorktreeItem extends vscode.TreeItem {
     readonly wt: Worktree,
     /** The main worktree: where git commands for this repository run. */
     readonly repo: string,
-    open: boolean
+    open: boolean,
+    /** The action running on this worktree, if any. */
+    busy?: Action
   ) {
     super(path.basename(wt.path));
     const s = wt.status;
-    const state = wt.prunable
-      ? 'missing'
-      : s && [
-          s.changes ? `●${s.changes}` : '✓',
-          (s.ahead || s.behind) && `↑${s.ahead} ↓${s.behind}`
-        ];
+    // Same vocabulary as the graph: ✎ uncommitted changes, ✓ clean, ↑↓ vs its upstream
+    const state = busy
+      ? (BUSY_LABELS[busy.type] ?? 'Working…')
+      : wt.prunable
+        ? 'missing'
+        : s && [
+            s.changes ? `✎${s.changes}` : '✓',
+            s.ahead && `↑${s.ahead}`,
+            s.behind && `↓${s.behind}`
+          ];
     this.description = [wt.branch ?? `detached ${wt.head.slice(0, 7)}`, state]
       .flat()
       .filter(Boolean)
       .join('  ');
-    this.iconPath = wt.prunable
-      ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
-      : new vscode.ThemeIcon(
-          open ? 'folder-opened' : wt.main ? 'repo' : 'folder',
-          s?.changes ? new vscode.ThemeColor('gitDecoration.modifiedResourceForeground') : undefined
-        );
+    this.iconPath = busy
+      ? new vscode.ThemeIcon('loading~spin')
+      : wt.prunable
+        ? new vscode.ThemeIcon('warning', new vscode.ThemeColor('list.warningForeground'))
+        : new vscode.ThemeIcon(
+            open ? 'folder-opened' : wt.main ? 'repo' : 'folder',
+            s?.changes
+              ? new vscode.ThemeColor('gitDecoration.modifiedResourceForeground')
+              : undefined
+          );
     this.tooltip = new vscode.MarkdownString(
       [
         `**${wt.path}**`,
         wt.branch ? `Branch \`${wt.branch}\`` : `Detached at \`${wt.head.slice(0, 8)}\``,
+        wt.headDate && `Last commit ${ago(wt.headDate)}: ${wt.headSubject}`,
         wt.prunable
           ? 'The folder is missing: prune to clean it up.'
           : s &&
@@ -63,6 +74,12 @@ class WorktreeItem extends vscode.TreeItem {
   }
 }
 
+const BUSY_LABELS: Partial<Record<Action['type'], string>> = {
+  removeWorktree: 'Removing…',
+  bringWorktreeHere: 'Moving to the main worktree…',
+  pruneWorktrees: 'Pruning…'
+};
+
 class RepoItem extends vscode.TreeItem {
   constructor(
     label: string,
@@ -81,7 +98,9 @@ export class WorktreeView implements vscode.TreeDataProvider<Item> {
 
   constructor(
     private readonly git: Git,
-    private readonly repos: Repos
+    private readonly repos: Repos,
+    /** Running actions by `actionTarget` (see extension.ts). */
+    private readonly busy: ReadonlyMap<string, Action>
   ) {}
 
   refresh() {
@@ -104,24 +123,27 @@ export class WorktreeView implements vscode.TreeDataProvider<Item> {
     }
     const items = [...groups].map(([main, wts]) => ({
       main,
-      items: wts.map((w) => new WorktreeItem(w, main, open.has(w.path)))
+      items: wts.map(
+        (w) =>
+          new WorktreeItem(
+            w,
+            main,
+            open.has(w.path),
+            this.busy.get(w.path) ?? (w.prunable ? this.busy.get('pruneWorktrees') : undefined)
+          )
+      )
     }));
     if (items.length === 1) return items[0].items;
     return items.map((g) => new RepoItem(path.basename(g.main), g.items));
   }
 }
 
-/** `refresh` updates the graph and this view after an action. */
+/** `run` runs an action (showing it as busy) and refreshes the graph and this view. */
 export function registerWorktreeView(
   view: WorktreeView,
-  git: Git,
   repos: Repos,
-  refresh: () => void
+  run: (repo: string, action: Action) => Promise<void>
 ) {
-  const run = async (repo: string, action: Action) => {
-    await runAction(git, repo, action);
-    refresh();
-  };
   const firstRepo = async () => (await repos.list())[0]?.path;
   const cmd = (id: string, fn: (item: WorktreeItem) => unknown) =>
     vscode.commands.registerCommand(`treeline.worktree.${id}`, fn);

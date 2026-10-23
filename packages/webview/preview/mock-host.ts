@@ -3,13 +3,14 @@
  * (`pnpm --filter @treeline/webview preview`). Answers RPC calls from
  * fixture.json and logs everything else.
  */
-import type { GraphQuery, RpcRequest } from '@treeline/shared';
+import { actionTarget, type Action, type GraphQuery, type RpcRequest } from '@treeline/shared';
 import fixture from './fixture.json';
 
 const reply = (id: number, result: unknown) =>
   setTimeout(() => window.postMessage({ id, result }, '*'), 30);
 
 let state: unknown;
+let view = { worktrees: true, branches: true, tags: true };
 (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
   getState: () => state,
   setState: (s: unknown) => (state = s),
@@ -42,6 +43,20 @@ let state: unknown;
         // Any plausible file list: every file touched by the fixture's commits
         const files = Object.values(fixture.details).flatMap((d) => d.files);
         return reply(id, [...new Map(files.map((f) => [f.path, f])).values()]);
+      }
+      case 'getView':
+        return reply(id, view);
+      case 'setView':
+        view = args[0] as typeof view;
+        return reply(id, undefined);
+      case 'run': {
+        // Pretend git takes a while, so the busy spinners can be seen
+        const key = actionTarget(args[1] as Action);
+        window.postMessage({ event: 'busy', key, busy: true }, '*');
+        return setTimeout(() => {
+          window.postMessage({ event: 'busy', key, busy: false }, '*');
+          reply(id, undefined);
+        }, 2000);
       }
       default:
         return reply(id, undefined);

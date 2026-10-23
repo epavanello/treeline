@@ -4,6 +4,7 @@
   import * as Command from '$lib/components/ui/command';
   import * as Popover from '$lib/components/ui/popover';
   import { cn } from '$lib/utils';
+  import type { Hint } from './Tip.svelte';
 
   /** A searchable multi-select (or `single`-select); an empty selection is `allLabel`. */
   let {
@@ -12,7 +13,8 @@
     noun,
     onchange,
     single = false,
-    allLabel = 'Show All'
+    allLabel = 'Show All',
+    hint
   }: {
     items: string[];
     selected: string[];
@@ -20,6 +22,7 @@
     onchange: (v: string[]) => void;
     single?: boolean;
     allLabel?: string;
+    hint?: Hint;
   } = $props();
 
   let open = $state(false);
@@ -43,7 +46,7 @@
 <Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
-      <Button {...props} variant="outline" size="xs" class="max-w-56 justify-between">
+      <Button {...props} {hint} variant="outline" size="xs" class="max-w-56 justify-between">
         <span class="truncate">{label}</span>
         <ChevronDown class="size-3 opacity-60" />
       </Button>

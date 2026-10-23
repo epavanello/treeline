@@ -2,6 +2,8 @@
   import { cn, type WithElementRef } from '$lib/utils.js';
   import { LoaderCircle } from '@lucide/svelte';
   import { watch } from 'runed';
+  import { mergeProps } from 'svelte-toolbelt';
+  import Tip, { type Hint } from '$lib/components/Tip.svelte';
   import type { Component, Snippet } from 'svelte';
   import type { HTMLAnchorAttributes, HTMLButtonAttributes } from 'svelte/elements';
   import { type VariantProps, tv } from 'tailwind-variants';
@@ -57,6 +59,8 @@
       icon?: Component;
       iconAtEnd?: boolean;
       loading?: boolean;
+      /** A tooltip describing what the button does (replaces a plain `title`). */
+      hint?: Hint;
       /** Content shown inside the button while loading, replacing the children —
        * a plain string, or a snippet for rich content. */
       loadingContent?: string | Snippet;
@@ -105,6 +109,7 @@
     expectedSeconds,
     loadingSince,
     iconAtEnd = false,
+    hint,
     ...restProps
   }: ButtonProps = $props();
 
@@ -153,8 +158,14 @@
   const progress = $derived(hasProgress ? Math.min(elapsed / expectedSeconds!, 0.97) : 0);
 </script>
 
+<!-- The spinner takes the icon's place; with no icon (and no loading label) it covers the
+     label, which stays in the layout invisibly, so the button never changes size. -->
 {#snippet spinnerAndIcon()}
-  {#if isLoading}
+  {#if isLoading && !icon && !showLoadingLabel}
+    <span class="absolute inset-0 flex items-center justify-center">
+      <LoaderCircle class={cn('animate-spin', iconSizeMap[size])} />
+    </span>
+  {:else if isLoading}
     <LoaderCircle class={cn('animate-spin', iconSizeMap[size])} />
   {:else if icon}
     {@const Icon = icon}
@@ -165,6 +176,8 @@
 {#snippet label()}
   {#if showLoadingLabel}
     {#if loadingSnippet}{@render loadingSnippet()}{:else}{loadingLabel}{/if}
+  {:else if isLoading && !icon}
+    <span class="invisible">{@render children?.()}</span>
   {:else}
     {@render children?.()}
   {/if}
@@ -193,38 +206,46 @@
   {/if}
 {/snippet}
 
-{#if href}
-  <a
-    bind:this={ref}
-    data-slot="button"
-    class={cn(
-      buttonVariants({ variant, size }),
-      showProgress && 'relative isolate overflow-hidden',
-      className
-    )}
-    href={disabled ? undefined : href}
-    aria-disabled={disabled}
-    role={disabled ? 'link' : undefined}
-    tabindex={disabled ? -1 : undefined}
-    onclick={handleClick}
-    {...restProps}
-  >
-    {@render content()}
-  </a>
-{:else}
-  <button
-    bind:this={ref}
-    data-slot="button"
-    class={cn(
-      buttonVariants({ variant, size }),
-      showProgress && 'relative isolate overflow-hidden',
-      className
-    )}
-    {type}
-    {disabled}
-    onclick={handleClick}
-    {...restProps}
-  >
-    {@render content()}
-  </button>
-{/if}
+{#snippet element(trigger: Record<string, unknown>)}
+  {#if href}
+    <a
+      bind:this={ref}
+      data-slot="button"
+      class={cn(
+        buttonVariants({ variant, size }),
+        'relative',
+        showProgress && 'isolate overflow-hidden',
+        className
+      )}
+      href={disabled ? undefined : href}
+      aria-disabled={disabled}
+      role={disabled ? 'link' : undefined}
+      tabindex={disabled ? -1 : undefined}
+      {...mergeProps(restProps, trigger, { onclick: handleClick })}
+    >
+      {@render content()}
+    </a>
+  {:else}
+    <button
+      bind:this={ref}
+      data-slot="button"
+      class={cn(
+        buttonVariants({ variant, size }),
+        'relative',
+        showProgress && 'isolate overflow-hidden',
+        className
+      )}
+      {type}
+      {disabled}
+      {...mergeProps(restProps, trigger, { onclick: handleClick })}
+    >
+      {@render content()}
+    </button>
+  {/if}
+{/snippet}
+
+<Tip {hint}>
+  {#snippet children(trigger)}
+    {@render element(trigger)}
+  {/snippet}
+</Tip>

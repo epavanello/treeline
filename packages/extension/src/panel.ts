@@ -1,7 +1,8 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { HostApi, HostEvent, RpcRequest, RpcResponse } from '@treeline/shared';
-import { openFolder, runAction } from './actions';
+import type { Action, ViewSettings } from '@treeline/shared';
+import { openFolder } from './actions';
 import { openDiff, revisionUri } from './diff';
 import type { Git } from './git';
 import type { Repos } from './repos';
@@ -9,8 +10,8 @@ import type { Repos } from './repos';
 export interface Services {
   git: Git;
   repos: Repos;
-  /** Reloads the graph and the Worktrees view. */
-  refresh: () => void;
+  /** Runs an action, showing it as busy, then reloads the graph and the Worktrees view. */
+  run: (repo: string, action: Action) => Promise<void>;
   commitMessage: (repo: string) => Promise<void>;
 }
 
@@ -41,7 +42,7 @@ export class GraphPanel {
   private constructor(
     ctx: vscode.ExtensionContext,
     private readonly panel: vscode.WebviewPanel,
-    { git, repos, refresh, commitMessage }: Services
+    { git, repos, run, commitMessage }: Services
   ) {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'resources', 'icon.svg');
     panel.webview.html = html(panel.webview, ctx.extensionUri);
@@ -51,10 +52,7 @@ export class GraphPanel {
       getGraph: (q) => git.getGraph(q),
       getDetails: (repo, commit) => git.getDetails(repo, commit),
       compare: (repo, from, to) => git.compare(repo, from, to),
-      run: async (repo, action) => {
-        await runAction(git, repo, action);
-        refresh();
-      },
+      run,
       openDiff: async (target) => void (await openDiff(git, target)),
       generateCommitMessage: commitMessage,
       openFile: async (repo, file, hash) => {
@@ -63,7 +61,14 @@ export class GraphPanel {
       },
       openScm: async () => void (await vscode.commands.executeCommand('workbench.view.scm')),
       openFolder: async (folder) => void (await openFolder(folder)),
-      copy: async (text) => vscode.env.clipboard.writeText(text)
+      copy: async (text) => vscode.env.clipboard.writeText(text),
+      getView: async () => ({
+        worktrees: true,
+        branches: true,
+        tags: true,
+        ...ctx.globalState.get<Partial<ViewSettings>>('view')
+      }),
+      setView: async (view) => void (await ctx.globalState.update('view', view))
     };
 
     panel.webview.onDidReceiveMessage(

@@ -49,7 +49,11 @@
     const repo = app.repo!;
     const { to } = range;
     return [
-      { label: 'View Diff', run: () => diff(file) },
+      {
+        label: 'View Diff',
+        run: () => diff(file),
+        hint: 'Side by side, before and after. When a side matches your working tree it opens the real file, so Go to Definition, errors and links work there.'
+      },
       ...(file.status !== 'D' && to !== UNCOMMITTED
         ? [
             {
@@ -61,7 +65,8 @@
                   file: { ...$state.snapshot(file), status: 'M', oldPath: file.path },
                   from: file.status === 'U' ? `${to}^3` : to,
                   to: UNCOMMITTED
-                })
+                }),
+              hint: `This file at ${short(to)} next to your current file on disk: editable, with every language feature.`
             }
           ]
         : []),
@@ -69,12 +74,19 @@
         ? [
             {
               label: 'View File at this Revision',
-              run: () => host.openFile(repo, file.path, file.status === 'U' ? `${to}^3` : to)
+              run: () => host.openFile(repo, file.path, file.status === 'U' ? `${to}^3` : to),
+              hint: `The whole file as it was at ${short(to)}, read-only.`
             }
           ]
         : []),
       ...(file.status !== 'D'
-        ? [{ label: 'Open File', run: () => host.openFile(repo, file.path) }]
+        ? [
+            {
+              label: 'Open File',
+              run: () => host.openFile(repo, file.path),
+              hint: 'Opens your current file on disk.'
+            }
+          ]
         : []),
       'separator',
       { label: 'Copy Relative File Path', run: () => host.copy(file.path) },
@@ -102,7 +114,7 @@
       variant="ghost"
       size="icon-xs"
       icon={X}
-      title="Close (Esc)"
+      hint="Close the details (Esc)"
       onclick={() => app.closeDetails()}
     />
   </div>
@@ -147,7 +159,7 @@
           {#each files as f (f.path)}
             <li>
               <button
-                class="flex w-full items-center gap-2 px-3 py-0.5 text-left hover:bg-accent"
+                class="flex w-full items-center gap-2 px-3 py-0.5 text-left hover:bg-accent data-menu-open:bg-accent"
                 onclick={() => diff(f)}
                 oncontextmenu={(e) => open(e, fileMenu(f))}
                 title={f.status === 'R' ? `${f.oldPath} → ${f.path}` : f.path}

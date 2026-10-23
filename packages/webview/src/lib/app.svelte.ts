@@ -1,10 +1,12 @@
+import { tick } from 'svelte';
 import {
   UNCOMMITTED,
   type Commit,
   type CommitDetails,
   type FileChange,
   type GraphData,
-  type Repo
+  type Repo,
+  type ViewSettings
 } from '@treeline/shared';
 import { layout } from './graph';
 import { host, onHostEvent, vscode } from './rpc';
@@ -48,6 +50,12 @@ class App {
   branchDiff = $state<{ base: string; mergeBase: string; files: FileChange[] } | null>(null);
 
   find = $state('');
+  /** Which navigation rows are shown (worktrees, branches, tags). */
+  view = $state<ViewSettings>({ worktrees: true, branches: true, tags: true });
+  /** A short-lived message under the toolbar (see `flash`). */
+  notice = $state<string | null>(null);
+  /** `actionTarget`s of the actions whose git commands are running (host `busy` events). */
+  running = $state<string[]>([]);
 
   graph = $derived(layout(this.data?.commits ?? []));
   matches = $derived.by(() => {
@@ -66,6 +74,36 @@ class App {
     );
   });
 
+  flash(message: string) {
+    this.notice = message;
+    setTimeout(() => this.notice === message && (this.notice = null), 5000);
+  }
+
+  /**
+   * Selects a commit and scrolls to it, loading more history when it isn't loaded yet
+   * (doubling the page each time, up to 20k commits).
+   */
+  async reveal(hash: string) {
+    const find = () => this.data?.commits.find((c) => c.hash === hash);
+    while (!find() && this.data?.hasMore && this.maxCommits < 20_000) {
+      this.maxCommits *= 2;
+      await this.refresh();
+    }
+    const commit = find();
+    if (!commit)
+      return this.flash(
+        "That commit isn't in the graph: the branch, author or ↑↓ filters hide it."
+      );
+    void this.select(commit);
+    await tick();
+    this.scrollTo(hash);
+  }
+
+  /** Whether an action is running on any of these targets (worktree path, ref name, hash…). */
+  isRunning(...keys: (string | null | undefined)[]) {
+    return keys.some((k) => k && this.running.includes(k));
+  }
+
   /** Scrolls the commit list to a commit; set by App.svelte, which owns the scroller. */
   scrollTo: (hash: string) => void = () => {};
 
@@ -78,9 +116,14 @@ class App {
     this.showRemotes = saved.showRemotes ?? true;
     this.base = saved.base ?? null;
     this.focus = saved.focus ?? false;
+    void host.getView().then((v) => (this.view = v));
     await this.loadRepos(saved.repo);
     onHostEvent((e) => {
       if (e.event === 'refresh') void this.refresh();
+      else if (e.event === 'busy')
+        this.running = e.busy
+          ? [...this.running, e.key]
+          : this.running.filter((k, i) => i !== this.running.indexOf(e.key));
       else void this.loadRepos(this.repo ?? undefined);
     });
   }
@@ -188,6 +231,11 @@ class App {
     const files = await host.compare(this.repo, c.mergeBase, UNCOMMITTED);
     this.selected = this.compareWith = this.details = this.compareFiles = null;
     this.branchDiff = { base: c.base, mergeBase: c.mergeBase, files };
+  }
+
+  setView(patch: Partial<ViewSettings>) {
+    this.view = { ...this.view, ...patch };
+    void host.setView($state.snapshot(this.view));
   }
 
   setShowRemotes(show: boolean) {

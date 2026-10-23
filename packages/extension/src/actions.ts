@@ -136,6 +136,22 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
     }
     case 'pullBranch':
       return [['pull', a.remote, a.name.slice(a.remote.length + 1)]];
+    case 'updateBranch': {
+      const wt = (await git.getWorktrees(repo)).find((w) => w.branch === a.name);
+      if (wt) return [wt.current ? ['pull'] : ['-C', wt.path, 'pull']];
+      // Not checked out anywhere: fast-forward it straight from the remote (refused if it diverged)
+      const config = (key: string) =>
+        git.exec(repo, ['config', `branch.${a.name}.${key}`]).then(
+          (s) => s.trim(),
+          () => ''
+        );
+      const [remote, merge] = await Promise.all([config('remote'), config('merge')]);
+      if (!remote || !merge) {
+        void vscode.window.showErrorMessage(`${a.name} has no upstream branch to pull from.`);
+        return null;
+      }
+      return [['fetch', remote, `${merge}:refs/heads/${a.name}`]];
+    }
     case 'merge':
       return [['merge', '--no-edit', a.target]];
     case 'rebase':
@@ -290,9 +306,16 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
   }
 }
 
-export async function runAction(git: Git, repo: string, action: Action): Promise<void> {
+/** `onStart` fires once the prompts are answered and git is about to run (not if cancelled). */
+export async function runAction(
+  git: Git,
+  repo: string,
+  action: Action,
+  onStart?: () => void
+): Promise<void> {
   const steps = await plan(git, repo, action);
   if (!steps) return;
+  onStart?.();
   const first = steps.find((s): s is string[] => Array.isArray(s))!;
   const name = `git ${first[0] === '-C' ? first[2] : first[0]}`;
   try {

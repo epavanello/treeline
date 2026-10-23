@@ -87,6 +87,12 @@ input:focus {
   outline: none;
 }
 
+/* The element a context menu belongs to, while the menu is open (set by ActionMenu) */
+[data-menu-open] {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

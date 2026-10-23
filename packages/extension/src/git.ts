@@ -13,6 +13,7 @@ import {
   type GraphData,
   type GraphQuery,
   type Ref,
+  type RefSummary,
   type Worktree,
   type WorktreeStatus
 } from '@treeline/shared';
@@ -154,6 +155,8 @@ export class Git {
       branches: [...new Set(branches)],
       remotes,
       worktrees,
+      heads: refs.filter((r) => r.ref.kind === 'head'),
+      tags: refs.filter((r) => r.ref.kind === 'tag'),
       compare: compare && {
         base: compare.base,
         ahead: compare.ahead,
@@ -215,8 +218,24 @@ export class Git {
         current: f.get('worktree') === top,
         locked: f.has('locked'),
         prunable: f.has('prunable'),
+        headDate: null,
+        headSubject: null,
         status: null
       }));
+    // Every worktree shares the object database: one call dates all their commits
+    const heads = [...new Set(worktrees.map((w) => w.head).filter(Boolean))];
+    const shown = heads.length
+      ? await this.try(
+          this.exec(repo, ['show', '-s', `--format=%H${F}%ct${F}%s`, ...heads, '--']),
+          ''
+        )
+      : '';
+    const info = new Map(lines(shown).map((l) => [l.split(F)[0], l.split(F)]));
+    for (const w of worktrees) {
+      const [, date, subject] = info.get(w.head) ?? [];
+      w.headDate = date ? +date : null;
+      w.headSubject = subject ?? null;
+    }
     await Promise.all(
       worktrees
         .filter((w) => !w.prunable)
@@ -239,26 +258,40 @@ export class Git {
     return status;
   }
 
-  private async getRefs(repo: string, remotes: string[]): Promise<{ hash: string; ref: Ref }[]> {
+  private async getRefs(repo: string, remotes: string[]): Promise<RefSummary[]> {
     const out = await this.try(
       this.exec(repo, [
         'for-each-ref',
-        `--format=%(objectname)${F}%(*objectname)${F}%(refname)${F}%(refname:short)`,
+        '--sort=-creatordate',
+        `--format=%(objectname)${F}%(*objectname)${F}%(refname)${F}%(refname:short)${F}%(creatordate:unix)${F}%(*subject)${F}%(subject)${F}%(upstream:short)${F}%(upstream:track,nobracket)`,
         'refs/heads',
         'refs/remotes',
         'refs/tags'
       ]),
       ''
     );
-    return lines(out).flatMap((line) => {
-      const [obj, deref, full, name] = line.split(F);
-      const hash = deref || obj;
-      if (full.startsWith('refs/heads/')) return [{ hash, ref: { kind: 'head', name } as Ref }];
+    return lines(out).flatMap((line): RefSummary[] => {
+      const [obj, deref, full, name, date, derefSubject, subject, upstream, track] = line.split(F);
+      // Annotated tags point to a tag object: the commit (and its subject) is the dereferenced one
+      const base = { hash: deref || obj, date: +date, subject: deref ? derefSubject : subject };
+      if (full.startsWith('refs/heads/')) {
+        const ref: Ref = { kind: 'head', name };
+        // `track` reads "ahead 1, behind 2", "gone" or nothing when in sync
+        const count = (word: string) => +(track.match(new RegExp(`${word} (\\d+)`))?.[1] ?? 0);
+        if (upstream)
+          ref.upstream = {
+            name: upstream,
+            ahead: count('ahead'),
+            behind: count('behind'),
+            gone: track === 'gone'
+          };
+        return [{ ...base, ref }];
+      }
       if (full.startsWith('refs/tags/'))
-        return [{ hash, ref: { kind: 'tag', name, annotated: !!deref } as Ref }];
+        return [{ ...base, ref: { kind: 'tag', name, annotated: !!deref } }];
       if (full.endsWith('/HEAD')) return [];
       const remote = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
-      return [{ hash, ref: { kind: 'remote', name: full.slice(13), remote } as Ref }];
+      return [{ ...base, ref: { kind: 'remote', name: full.slice(13), remote } }];
     });
   }
 

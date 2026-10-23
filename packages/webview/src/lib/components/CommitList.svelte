@@ -1,5 +1,6 @@
 <script lang="ts">
   import { UNCOMMITTED, type Commit } from '@treeline/shared';
+  import { LoaderCircle } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import { menuItems } from '$lib/menus';
   import { cn } from '$lib/utils';
@@ -63,7 +64,7 @@
             tabindex="-1"
             data-hash={c.hash}
             class={cn(
-              'grid cursor-default text-[13px] hover:bg-accent',
+              'grid cursor-default text-[13px] hover:bg-accent data-menu-open:bg-accent',
               c.side === 'ahead' && 'bg-ahead/10',
               c.side === 'behind' && 'bg-behind/10',
               isSelected && 'bg-selection text-selection-foreground hover:bg-selection',
@@ -94,6 +95,7 @@
                     {ref}
                     color={laneColor(row.color)}
                     current={ref.kind === 'head' && ref.name === app.data?.currentBranch}
+                    busy={app.isRunning(ref.name, ref.worktree)}
                     status={ref.worktree
                       ? app.data?.worktrees.find((w) => w.path === ref.worktree)?.status
                       : undefined}
@@ -119,8 +121,12 @@
             <div class="truncate px-2 leading-6 text-muted-foreground" title={c.email}>
               {c.author}
             </div>
-            <div class="truncate px-2 font-mono text-xs leading-6 text-muted-foreground">
-              {c.hash === UNCOMMITTED ? '*' : c.hash.slice(0, 8)}
+            <div class="flex items-center px-2 font-mono text-xs text-muted-foreground">
+              {#if app.isRunning(c.hash)}
+                <LoaderCircle class="size-3 animate-spin" />
+              {:else}
+                <span class="truncate">{c.hash === UNCOMMITTED ? '*' : c.hash.slice(0, 8)}</span>
+              {/if}
             </div>
           </div>
         {/each}

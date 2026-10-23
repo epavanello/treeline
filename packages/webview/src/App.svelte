@@ -5,8 +5,10 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import { ROW } from '$lib/components/GraphSvg.svelte';
   import Toolbar from '$lib/components/Toolbar.svelte';
+  import RefStrip from '$lib/components/RefStrip.svelte';
   import WorktreeStrip from '$lib/components/WorktreeStrip.svelte';
   import * as Resizable from '$lib/components/ui/resizable';
+  import * as Tooltip from '$lib/components/ui/tooltip';
 
   let scroller = $state<HTMLElement>();
   let findInput = $state<HTMLInputElement>();
@@ -58,26 +60,35 @@
 
 <svelte:window {onkeydown} />
 
-<div class="flex h-full flex-col">
-  <Toolbar bind:findInput onFindEnter={nextMatch} />
-  <CompareBar />
-  <WorktreeStrip />
-  {#if app.error}
-    <div class="border-b px-3 py-2 text-xs text-destructive">{app.error}</div>
-  {/if}
-  {#if !app.repo && app.repos.length === 0}
-    <div class="p-6 text-sm text-muted-foreground">No Git repository found in this workspace.</div>
-  {:else}
-    <Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
-      <Resizable.Pane order={1}>
-        <CommitList bind:scroller />
-      </Resizable.Pane>
-      {#if app.selected || app.branchDiff}
-        <Resizable.Handle />
-        <Resizable.Pane order={2} defaultSize={40} minSize={15}>
-          <DetailsPanel />
+<Tooltip.Provider delayDuration={500}>
+  <div class="flex h-full flex-col">
+    <Toolbar bind:findInput onFindEnter={nextMatch} />
+    <CompareBar />
+    <WorktreeStrip />
+    <RefStrip kind="heads" />
+    <RefStrip kind="tags" />
+    {#if app.notice}
+      <div class="border-b px-3 py-1.5 text-xs text-muted-foreground">{app.notice}</div>
+    {/if}
+    {#if app.error}
+      <div class="border-b px-3 py-2 text-xs text-destructive">{app.error}</div>
+    {/if}
+    {#if !app.repo && app.repos.length === 0}
+      <div class="p-6 text-sm text-muted-foreground">
+        No Git repository found in this workspace.
+      </div>
+    {:else}
+      <Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
+        <Resizable.Pane order={1}>
+          <CommitList bind:scroller />
         </Resizable.Pane>
-      {/if}
-    </Resizable.PaneGroup>
-  {/if}
-</div>
+        {#if app.selected || app.branchDiff}
+          <Resizable.Handle />
+          <Resizable.Pane order={2} defaultSize={40} minSize={15}>
+            <DetailsPanel />
+          </Resizable.Pane>
+        {/if}
+      </Resizable.PaneGroup>
+    {/if}
+  </div>
+</Tooltip.Provider>

@@ -57,6 +57,18 @@ describe('getGraph', () => {
     expect(stash.parents).toEqual([g.head]);
   });
 
+  it('lists branches and tags, most recent first, with their commit', async () => {
+    const g = await git.getGraph(query());
+    expect(g.heads.map((h) => [h.ref.name, h.subject])).toEqual([
+      ['main', 'Main after topic'],
+      ['topic', 'Topic commit'],
+      ['feature', 'Feature work 2']
+    ]);
+    const [tag] = g.tags;
+    expect(tag).toMatchObject({ ref: { name: 'v1.0', annotated: true }, subject: 'Merge feature' });
+    expect(tag.hash).toBe(g.commits.find((c) => c.subject === 'Merge feature')!.hash);
+  });
+
   it('paginates and hides remotes', async () => {
     const g = await git.getGraph(query({ maxCommits: 3, showRemotes: false }));
     expect(g.hasMore).toBe(true);
@@ -156,6 +168,8 @@ describe('worktrees', () => {
   it('lists the main worktree with its status', async () => {
     const [main] = await git.getWorktrees(dir);
     expect(main).toMatchObject({ branch: 'main', main: true, current: true, prunable: false });
+    expect(main.headSubject).toBe('Main after topic');
+    expect(main.headDate).toBe(1_700_000_000 + 8 * 60);
     expect(main.status).toEqual({ changes: 2, ahead: 0, behind: 0, upstream: null });
   });
 
@@ -172,6 +186,12 @@ describe('worktrees', () => {
     const g = await git.getGraph(query());
     const refs = g.commits.flatMap((c) => c.refs);
     expect(refs.find((r) => r.name === 'topic')?.worktree).toBe(linked.path);
+    expect(g.heads.find((h) => h.ref.name === 'topic')?.ref.upstream).toEqual({
+      name: 'origin/main',
+      ahead: 1,
+      behind: 0,
+      gone: false
+    });
     expect(refs.find((r) => r.name === 'main')?.worktree).toBeUndefined();
     // Seen from the linked worktree, it is the current one and main is elsewhere
     const fromLinked = await git.getWorktrees(path);

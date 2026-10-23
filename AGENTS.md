@@ -37,8 +37,12 @@ branch with main, review diffs with working language features, juggle worktrees 
    (`git diff --quiet <rev> -- <path>`); "Diff" and "Compare with Working Tree" always do. For an old commit,
    "Open in Temporary Worktree" gives a real checkout in its own window.
 3. **Worktrees**: `Git.getWorktrees` is part of `GraphData`; branches checked out elsewhere get `Ref.worktree`
-   and show that worktree's status on their badge. The WorktreeStrip under the compare bar lists every
-   worktree (click: jump to its commit, double-click: open, right-click: `worktreeItems()` in `menus.ts`).
+   and show that worktree's status on their badge. Under the compare bar, `NavStrip` rows (pinned title and
+   action, chips scrolling under a fade, wheel scrolls sideways) list the worktrees (`WorktreeStrip`: click
+   reveals its commit via `app.reveal()`, which loads more history when needed; double-click opens;
+   right-click `worktreeItems()` in `menus.ts`), the local branches and the tags (`RefStrip`, from
+   `GraphData.heads/tags`, most recent first). Rows are toggled from the toolbar (`ViewSettings`, kept in
+   the extension's `globalState`).
    The native **Worktrees view** in the Source Control sidebar
    (`worktreeView.ts`) has inline open/remove, terminal, reveal, "Bring Branch to Main Worktree" (remove the
    worktree, check the branch out in the main one, carrying uncommitted changes through a stash) and "Remove
@@ -93,8 +97,9 @@ packages/
     src/lib/graph.ts        lane layout algorithm (unit-tested)
     src/lib/rpc.ts          typed Proxy over postMessage (`host.getGraph(q)` …)
     src/lib/menus.ts        context menus as data
-    src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, WorktreeStrip,
-                            MultiFilter (branches, authors, base), ActionMenu, RefBadge, WorktreeState
+    src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, NavStrip (+ its rows
+                            WorktreeStrip, RefStrip), MultiFilter (branches, authors, base), ActionMenu,
+                            RefBadge, WorktreeState, Tip
     preview/                runs the webview in a plain browser with a mocked host
 ```
 
@@ -118,7 +123,14 @@ packages/
 - **Theming**: shadcn tokens map to `--vscode-*` variables in `src/app.css`; no palettes of our own.
   `dark:` = `.vscode-dark` / `.vscode-high-contrast` on `<body>`.
 - **Async buttons**: `Button` (copied from devmotion) shows a spinner automatically when `onclick` returns a
-  Promise. Prefer that to manual loading state.
+  Promise, in place of its icon (or over its label, keeping its size). Prefer that to manual loading state.
+- **Busy state**: every action runs through `run()` in `extension.ts`, which posts `{ event: 'busy', key }`
+  once its prompts are answered (`key` = `actionTarget(action)`: worktree path, ref name, hash…). The webview
+  (`app.running`, `app.isRunning()`) swaps the icon of whatever it concerns for a spinner; the Worktrees view
+  shows "Removing…" with a spinning icon.
+- **Tooltips**: every control explains itself. `Button` takes a `hint`, menu items a `hint` field, anything
+  else wraps in `Tip` (`{#snippet children(trigger)}` and spread `trigger` on the element). A `Hint` is a
+  sentence or `{ title, body, warn, command }`. Write one for every new button or menu item.
 
 ## Commands
 

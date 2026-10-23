@@ -32,14 +32,28 @@ describe('worktree view', () => {
     writeFileSync(join(linked, 'wip.txt'), 'wip\n');
 
     const repos = { list: async () => [{ path: dir, name: basename(dir) }] } as unknown as Repos;
-    const items = (await new WorktreeView(new Git(), repos).getChildren()) as vscode.TreeItem[];
+    const items = (await new WorktreeView(
+      new Git(),
+      repos,
+      new Map()
+    ).getChildren()) as vscode.TreeItem[];
     assert.deepEqual(
       items.map((i) => [i.label, i.description, i.contextValue]),
       [
-        [basename(dir), 'main  ●2', ';worktree;main;open;branch;'],
-        ['topic', 'topic  ●1', ';worktree;branch;']
+        [basename(dir), 'main  ✎2', ';worktree;main;open;branch;'],
+        ['topic', 'topic  ✎1', ';worktree;branch;']
       ]
     );
+
+    // While an action runs on a worktree, its row says so with a spinner
+    const busy = new Map([[linked, { type: 'removeWorktree' as const, path: linked }]]);
+    const [, removing] = (await new WorktreeView(
+      new Git(),
+      repos,
+      busy
+    ).getChildren()) as vscode.TreeItem[];
+    assert.equal(removing.description, 'topic  Removing…');
+    assert.equal((removing.iconPath as vscode.ThemeIcon).id, 'loading~spin');
 
     // The worktree open in this window: no inline buttons, no remove / bring here
     assert.deepEqual(menu(items[0].contextValue!, true), []);
