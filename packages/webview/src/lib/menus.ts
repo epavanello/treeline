@@ -4,7 +4,14 @@
  * A trailing "…" means the item asks something first. `hint` is the tooltip
  * shown when hovering the item: what it does, what to watch out for, the command.
  */
-import { UNCOMMITTED, type Action, type Commit, type Ref, type Worktree } from '@treeline/shared';
+import {
+  UNCOMMITTED,
+  type Action,
+  type Commit,
+  type Ref,
+  type RefSummary,
+  type Worktree
+} from '@treeline/shared';
 import { app } from './app.svelte';
 import type { Hint } from './components/Tip.svelte';
 import { host } from './rpc';
@@ -282,7 +289,10 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     {
       label: 'Add Tag…',
       run: run({ type: 'addTag', hash: commit.hash }),
-      hint: { body: `Tags ${at} (a lightweight tag).`, command: `git tag <name> ${at}` }
+      hint: {
+        body: `Tags ${at}. Suggests the next version after your latest one (patch, minor, major), or any name you type; then offers to push it.`,
+        command: `git tag <name> ${at}`
+      }
     },
     {
       label: 'Open in Temporary Worktree',
@@ -343,6 +353,18 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     { label: 'Copy Commit Subject', run: copy(commit.subject) }
   ];
 }
+
+/** The loaded commit a branch or tag points to, or a stand-in carrying what the menus need. */
+export const refCommit = (r: RefSummary): Commit =>
+  app.data?.commits.find((c) => c.hash === r.hash) ?? {
+    hash: r.hash,
+    parents: [],
+    author: '',
+    email: '',
+    date: r.date,
+    subject: r.subject,
+    refs: []
+  };
 
 /** Actions on a worktree: from the worktree strip and from the badge of the branch it has checked out. */
 export function worktreeItems(w: Worktree | undefined): MenuItem[] {

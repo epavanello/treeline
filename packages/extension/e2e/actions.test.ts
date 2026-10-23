@@ -208,6 +208,14 @@ describe('actions', () => {
     await act({ type: 'addTag', hash: rev('HEAD') }, 'release');
     await act({ type: 'pushTag', name: 'release' });
     assert.match(remoteRefs(), /refs\/tags\/release/);
+
+    // With a semver tag around, the next versions are suggested; any other name can be typed
+    sh('tag', 'v1.2.3', 'HEAD~1');
+    await act({ type: 'addTag', hash: rev('HEAD') }, 'v1.3.0');
+    assert.equal(rev('v1.3.0^{commit}'), rev('HEAD'));
+    assert.match(infos.at(-1)!, /as v1\.3\.0/);
+    await act({ type: 'addTag', hash: rev('HEAD') }, '$(edit) Other name…', 'custom');
+    assert.equal(sh('tag', '--list', 'custom'), 'custom');
   });
 
   it('pushes, pulls and fetches', async () => {
@@ -307,6 +315,41 @@ describe('actions', () => {
     rmSync(sibling(detachedAt.slice(0, 8)), { recursive: true });
     await act({ type: 'pruneWorktrees' });
     assert.equal((await worktrees()).size, 1);
+  });
+
+  it('picks what a new worktree checks out', async () => {
+    const sibling = (name: string) => join(dirname(dir), `${basename(dir)}-${name}`);
+    const branchAt = (path: string) =>
+      execFileSync('git', ['branch', '--show-current'], { cwd: path }).toString().trim();
+
+    // A new branch from the default base (origin/main), fetched first and not tracking it
+    await act({ type: 'newWorktree' }, '$(add) New branch from origin/main…', 'fresh');
+    assert.equal(branchAt(sibling('fresh')), 'fresh');
+    assert.equal(rev('fresh'), rev('origin/main'));
+    assert.throws(() => sh('rev-parse', '--abbrev-ref', 'fresh@{upstream}'));
+
+    // A free local branch; one already checked out isn't offered
+    await act({ type: 'newWorktree' }, '$(git-branch) feature');
+    assert.equal(branchAt(sibling('feature')), 'feature');
+    const count = (await git.getWorktrees(dir)).length;
+    await act({ type: 'newWorktree' }, '$(git-branch) fresh');
+    assert.equal((await git.getWorktrees(dir)).length, count);
+
+    // A remote branch: checked out as a local branch tracking it
+    sh('push', '-q', 'origin', 'main:remote-fresh');
+    sh('fetch', '-q');
+    await act({ type: 'newWorktree' }, '$(cloud) origin/remote-fresh');
+    assert.equal(branchAt(sibling('remote-fresh')), 'remote-fresh');
+    assert.equal(sh('rev-parse', '--abbrev-ref', 'remote-fresh@{upstream}'), 'origin/remote-fresh');
+
+    // A new branch from any other branch
+    await act(
+      { type: 'newWorktree' },
+      '$(git-branch) New branch from another branch…',
+      'topic',
+      'from-topic'
+    );
+    assert.equal(rev('from-topic'), rev('topic'));
   });
 
   it('writes a commit message with the local Claude CLI', async () => {

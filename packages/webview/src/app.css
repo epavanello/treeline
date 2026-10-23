@@ -39,6 +39,8 @@
   /* Commits only on HEAD (ahead of the compare base) / only on the base (behind) */
   --ahead: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
   --behind: var(--vscode-charts-blue, #3794ff);
+  /* On both sides under different hashes (rebased or cherry-picked) */
+  --same: var(--vscode-descriptionForeground, #9d9d9d);
   --dirty: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
 }
 
@@ -74,6 +76,7 @@
   --color-badge-foreground: var(--badge-foreground);
   --color-ahead: var(--ahead);
   --color-behind: var(--behind);
+  --color-same: var(--same);
   --color-dirty: var(--dirty);
 }
 

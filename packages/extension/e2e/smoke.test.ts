@@ -31,7 +31,7 @@ const query = (): GraphQuery => ({
   branches: [],
   authors: [],
   base: null,
-  focus: false,
+  focus: [],
   showRemotes: true,
   maxCommits: 100
 });

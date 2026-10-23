@@ -5,8 +5,10 @@
 # Open VSX: trusted publishing (OIDC, no secret), registered for this workflow at
 # open-vsx.org/user-settings/trusted-publishers; enabled by the repository variable
 # OPENVSX_TRUSTED_PUBLISHING=true. An OVSX_PAT secret, if present, is used instead.
-# VS Code Marketplace: only with a VSCE_PAT secret (an Azure DevOps token, which now needs an Azure
-# subscription); otherwise the run summary says to upload the .vsix at marketplace.visualstudio.com/manage.
+# VS Code Marketplace: through Microsoft Entra ID when the repository variables AZURE_CLIENT_ID and
+# AZURE_TENANT_ID name a managed identity federated with this workflow (no secret, nothing expires); or
+# with a VSCE_PAT secret (global Azure DevOps PATs are retired on 2026-12-01); otherwise the run summary
+# says to upload the .vsix at marketplace.visualstudio.com/manage.
 name: Release
 
 on:
@@ -50,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write # OIDC token for Open VSX trusted publishing
+      id-token: write # OIDC tokens: Open VSX trusted publishing, Azure sign-in for the Marketplace
     env:
       TAG: v${{ needs.check.outputs.version }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
@@ -72,9 +74,24 @@ jobs:
       - run: pnpm package
       - name: GitHub release (creates the tag)
         run: gh release create "$TAG" packages/extension/treeline.vsix --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
+      - name: Sign in to Azure as the Marketplace publishing identity
+        if: vars.AZURE_CLIENT_ID != ''
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Marketplace identity
+        if: vars.AZURE_CLIENT_ID != ''
+        # The ID to add as a Contributor of the publisher (once) at marketplace.visualstudio.com/manage
+        run: |
+          id=$(az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798 --query id -o tsv)
+          echo "**Marketplace publishing identity:** \`$id\` (a Contributor of the epavanello publisher)" >> "$GITHUB_STEP_SUMMARY"
       - name: Publish to the VS Code Marketplace
         run: |
-          if [ -n "$VSCE_PAT" ]; then
+          if [ -n "${{ vars.AZURE_CLIENT_ID }}" ]; then
+            pnpm --filter treeline exec vsce publish --no-dependencies --skip-duplicate --packagePath treeline.vsix --azure-credential
+          elif [ -n "$VSCE_PAT" ]; then
             pnpm --filter treeline exec vsce publish --no-dependencies --skip-duplicate --packagePath treeline.vsix
           else
             echo "::notice::VS Code Marketplace: upload the $TAG .vsix from the GitHub release at https://marketplace.visualstudio.com/manage/publishers/epavanello (… → Update)."

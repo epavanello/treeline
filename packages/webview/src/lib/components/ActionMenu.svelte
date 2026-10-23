@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import * as ContextMenu from '$lib/components/ui/context-menu';
+  import { app } from '$lib/app.svelte';
   import type { MenuItem } from '$lib/menus';
   import Tip from './Tip.svelte';
 
@@ -46,6 +47,7 @@
     target?.setAttribute('data-menu-open', '');
   }
   $effect(() => {
+    app.menuOpen = menuOpen;
     if (!menuOpen) mark(null);
   });
 

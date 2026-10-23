@@ -29,9 +29,15 @@ branch with main, review diffs with working language features, juggle worktrees 
 
 1. **Compare with a base** (`GraphQuery.base/focus`, `GraphData.compare`, `Commit.side`): HEAD vs a base
    branch (default `origin/HEAD`, then origin/main, origin/master, main, master) via
-   `rev-list --left-right HEAD...base`. The CompareBar shows ↑ahead ↓behind, rows are tinted green (only on
-   HEAD) / blue (only on the base), the merge base is labelled "fork point". "Only ↑↓" = focus mode
-   (`log --boundary HEAD...base`). "Diff" = every file since the merge base, working tree included.
+   `rev-list --cherry-mark --left-only|--right-only HEAD...base`: commits whose changes are on both sides
+   under different hashes (rebased, "Rebase and merge", cherry-picked) are `same`, not ahead/behind, and
+   counted in `Compare.same` ("≡ N already in <base>", dimmed rows). `Compare.rewritten` (at least 5 copies,
+   more copies than unique commits) means one side's history was rewritten: a warning, not ahead/behind.
+   Worktree cards get the same comparison and their uncommitted files from `getWorktreeDetails`, preloaded
+   one worktree at a time after each load and cached host-side until either HEAD moves. The CompareBar shows ↑ahead ↓behind, rows are tinted green (only on
+   HEAD) / blue (only on the base), the merge base is labelled "fork point". The counters are toggles:
+   `GraphQuery.focus` lists the sides to keep (`log --boundary HEAD...base`, then filtered by side, keeping
+   the merge base). "Diff" = every file since the merge base, working tree included.
 2. **Diffs on real files**: language servers ignore virtual documents (`treeline:`, and VS Code's own `git:`),
    so `openDiff` uses the file on disk as the right side whenever it matches that revision
    (`git diff --quiet <rev> -- <path>`); "Diff" and "Compare with Working Tree" always do. For an old commit,
@@ -39,10 +45,19 @@ branch with main, review diffs with working language features, juggle worktrees 
 3. **Worktrees**: `Git.getWorktrees` is part of `GraphData`; branches checked out elsewhere get `Ref.worktree`
    and show that worktree's status on their badge. Under the compare bar, `NavStrip` rows (pinned title and
    action, chips scrolling under a fade, wheel scrolls sideways) list the worktrees (`WorktreeStrip`: click
-   reveals its commit via `app.reveal()`, which loads more history when needed; double-click opens;
+   opens its uncommitted changes in the details panel via `app.openWorktree()` (`worktreePanel`; diffs
+   run with `repo` = that worktree's folder), `app.reveal()` jumps to a commit loading more history if needed; double-click opens;
    right-click `worktreeItems()` in `menus.ts`), the local branches and the tags (`RefStrip`, from
-   `GraphData.heads/tags`, most recent first). Rows are toggled from the toolbar (`ViewSettings`, kept in
-   the extension's `globalState`).
+   `GraphData.heads/tags`, most recent first; local branches only, to keep the team's noise out). The toolbar's
+   `BranchPicker` covers every branch (`heads` + `remoteHeads`), each with `RefSummary.vsBase` (ahead/behind
+   the compare base by hash, one `for-each-ref --format=%(ahead-behind:<base>)`, git 2.41+), a `RefCard` on
+   hover and the ref's context menu. Rows are toggled from the toolbar (`ViewSettings`, kept in
+   the extension's `globalState`, which also holds the commit list's column visibility and widths:
+   drag a header edge, double-click to reset; `DEFAULT_VIEW` in `shared` fills fields missing from older
+   saved settings).
+   Their + (and the sidebar's) runs `newWorktree`: a native QuickPick of free local branches, remote
+   branches, and "new branch from <compare base>" (fetched first, `--no-track`) or from any branch; the name
+   of a new branch is an InputBox validated with `git check-ref-format`. `addTag` suggests the next semver.
    The native **Worktrees view** in the Source Control sidebar
    (`worktreeView.ts`) has inline open/remove, terminal, reveal, "Bring Branch to Main Worktree" (remove the
    worktree, check the branch out in the main one, carrying uncommitted changes through a stash) and "Remove
@@ -55,7 +70,7 @@ branch with main, review diffs with working language features, juggle worktrees 
    into the Source Control input box. Triggers: ✨ in the Source Control title bar, the Uncommitted Changes menu.
 6. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
 
-Later ideas: merge local branch + its upstream into one badge (like Git Graph), avatars, commit search
+Later ideas: avatars, commit search
 server-side (`--grep`), a WebviewPanelSerializer so the panel survives window reloads, settings
 (page size, date format, graph style), multi-select actions.
 
@@ -69,9 +84,13 @@ and a GitHub release (notes = that version's CHANGELOG section, required), then 
 - **Open VSX**: trusted publishing (GitHub OIDC, no secret), active once the repository variable
   `OPENVSX_TRUSTED_PUBLISHING` is `true` (set after the namespace claim EclipseFdn/open-vsx.org#14627 is
   approved and the trusted publisher is registered). Until then the step is skipped with a notice.
-- **VS Code Marketplace**: automatic only with a `VSCE_PAT` secret (an Azure DevOps token, which now requires
-  an Azure subscription). Otherwise the run summary links the `.vsix` to upload by hand at
-  marketplace.visualstudio.com/manage/publishers/epavanello (… → Update).
+- **VS Code Marketplace**: automatic through **Microsoft Entra ID** once the repository variables
+  `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` are set: a user-assigned managed identity in Azure with a federated
+  credential for GitHub Actions (`repo:epavanello/treeline:ref:refs/heads/main`), added once as a Contributor
+  of the publisher using the ID the "Marketplace identity" step prints in the run summary. `azure/login` then
+  `vsce publish --azure-credential`; no secret, nothing to renew. A `VSCE_PAT` secret still works until
+  global Azure DevOps PATs are retired (2026-12-01). With neither, the run summary links the `.vsix` to
+  upload by hand at marketplace.visualstudio.com/manage/publishers/epavanello (… → Update).
 
 A push that changes the extension without bumping the version publishes nothing and gets a warning.
 0.1.0 was uploaded by hand to both stores.
@@ -95,11 +114,12 @@ packages/
   webview/     Svelte 5 + Vite + Tailwind 4 + shadcn-svelte → packages/extension/dist/webview/index.{js,css}
     src/lib/app.svelte.ts   all UI state (one class, runes)
     src/lib/graph.ts        lane layout algorithm (unit-tested)
+    src/lib/fileTree.ts     changed files grouped by folder, single-folder chains merged (unit-tested)
     src/lib/rpc.ts          typed Proxy over postMessage (`host.getGraph(q)` …)
     src/lib/menus.ts        context menus as data
     src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, NavStrip (+ its rows
-                            WorktreeStrip, RefStrip), MultiFilter (branches, authors, base), ActionMenu,
-                            RefBadge, WorktreeState, Tip
+                            WorktreeStrip, RefStrip), BranchPicker (the branch filter), RefCard,
+                            MultiFilter (authors, base), ActionMenu, RefBadge, WorktreeState, Tip
     preview/                runs the webview in a plain browser with a mocked host
 ```
 

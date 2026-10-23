@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import type { Action } from '@treeline/shared';
+import { ago, type Action, type Upstream } from '@treeline/shared';
 import type { Git } from './git';
 
 const ask = (prompt: string, value = '') =>
@@ -67,6 +67,43 @@ function siblingFolder(repo: string, name: string) {
   for (let i = 2; existsSync(dir); i++) dir = `${base}-${i}`;
   return dir;
 }
+
+/** After creating a worktree: say where, and offer to open it. */
+const worktreeReady = (dir: string) =>
+  void vscode.window
+    .showInformationMessage(`Worktree ready at ${dir}`, 'Open in New Window', 'Open Terminal')
+    .then((choice) =>
+      choice === 'Open in New Window'
+        ? openFolder(dir)
+        : choice && vscode.window.createTerminal({ cwd: dir, name: folder(dir) }).show()
+    );
+
+/** A new branch name: asked natively, checked as you type (valid for git, not taken). */
+const askBranchName = (git: Git, repo: string, title: string, taken: Set<string>) =>
+  vscode.window.showInputBox({
+    title,
+    prompt: 'Name of the new branch (its worktree folder is named after it)',
+    ignoreFocusOut: true,
+    validateInput: async (v) =>
+      !v
+        ? undefined
+        : taken.has(v)
+          ? `${v} already exists`
+          : await git.exec(repo, ['check-ref-format', '--branch', v]).then(
+              () => undefined,
+              () => 'Not a valid branch name'
+            )
+  });
+
+const syncText = (u?: Upstream) =>
+  !u
+    ? 'not pushed'
+    : u.gone
+      ? 'upstream deleted'
+      : [u.ahead && `↑${u.ahead}`, u.behind && `↓${u.behind}`].filter(Boolean).join(' ') ||
+        'in sync';
+
+const SEMVER = /^(v?)(\d+)\.(\d+)\.(\d+)$/;
 
 export const openFolder = (dir: string) =>
   vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(dir), {
@@ -180,8 +217,50 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
       return [['reset', mode, a.hash]];
     }
     case 'addTag': {
-      const name = await ask(`Tag ${short(a.hash)}`);
-      return name ? [['tag', name, a.hash]] : null;
+      const tags = (await git.listRefs(repo)).filter((r) => r.ref.kind === 'tag');
+      const taken = new Set(tags.map((t) => t.ref.name));
+      // Suggest the next versions after the highest semver tag
+      const latest = tags
+        .map((t) => t.ref.name.match(SEMVER))
+        .filter((m) => !!m)
+        .sort((x, y) => +y[2] - +x[2] || +y[3] - +x[3] || +y[4] - +x[4])[0];
+      const OTHER = '$(edit) Other name…';
+      let name: string | undefined = OTHER;
+      if (latest) {
+        const [, v, ...numbers] = latest;
+        const [maj, min, pat] = numbers.map(Number);
+        const next = [
+          [`${v}${maj}.${min}.${pat + 1}`, 'patch: fixes'],
+          [`${v}${maj}.${min + 1}.0`, 'minor: new features'],
+          [`${v}${maj + 1}.0.0`, 'major: breaking changes']
+        ].filter(([n]) => !taken.has(n));
+        name = (
+          await vscode.window.showQuickPick(
+            [...next.map(([label, description]) => ({ label, description })), { label: OTHER }],
+            {
+              title: `Tag ${short(a.hash)}`,
+              placeHolder: `Latest: ${latest[0]}`,
+              ignoreFocusOut: true
+            }
+          )
+        )?.label;
+      }
+      if (name === OTHER)
+        name = await vscode.window.showInputBox({
+          title: `Tag ${short(a.hash)}`,
+          prompt: 'Tag name',
+          ignoreFocusOut: true,
+          validateInput: (v) => (taken.has(v) ? `${v} already exists` : undefined)
+        });
+      if (!name) return null;
+      const tag = name;
+      return [
+        ['tag', tag, a.hash],
+        () =>
+          void vscode.window
+            .showInformationMessage(`Tagged ${short(a.hash)} as ${tag}.`, 'Push to Remote')
+            .then((push) => push && runAction(git, repo, { type: 'pushTag', name: tag }))
+      ];
     }
     case 'deleteTag':
       return [['tag', '-d', a.name]];
@@ -223,6 +302,87 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
     case 'fetch':
       return [['fetch', '--all', '--prune']];
 
+    case 'newWorktree': {
+      const [refs, worktrees, base] = await Promise.all([
+        git.listRefs(repo),
+        git.getWorktrees(repo),
+        a.base ? Promise.resolve(a.base) : git.defaultBase(repo)
+      ]);
+      const checkedOut = new Set(worktrees.map((w) => w.branch));
+      const locals = refs.filter((r) => r.ref.kind === 'head');
+      const localNames = new Set(locals.map((r) => r.ref.name));
+      const remotes = refs.filter((r) => r.ref.kind === 'remote');
+      const localOf = (remote: string, name: string) => name.slice(remote.length + 1);
+      type Choice = { branch?: string; remote?: string; from?: string | null };
+      const sep = (label: string) => ({ label, kind: vscode.QuickPickItemKind.Separator });
+      const items: (vscode.QuickPickItem & { choice?: Choice })[] = [
+        ...(base ? [{ label: `$(add) New branch from ${base}…`, choice: { from: base } }] : []),
+        { label: '$(git-branch) New branch from another branch…', choice: { from: null } },
+        sep('Local branches'),
+        ...locals
+          .filter((r) => !checkedOut.has(r.ref.name))
+          .map((r) => ({
+            label: `$(git-branch) ${r.ref.name}`,
+            description: `${ago(r.date)} · ${syncText(r.ref.upstream)}`,
+            choice: { branch: r.ref.name }
+          })),
+        sep('Remote branches'),
+        // A remote branch whose local branch exists is listed (or busy) as that local branch
+        ...remotes
+          .filter((r) => r.ref.remote && !localNames.has(localOf(r.ref.remote, r.ref.name)))
+          .map((r) => ({
+            label: `$(cloud) ${r.ref.name}`,
+            description: `${ago(r.date)} · creates a local branch tracking it`,
+            choice: { remote: r.ref.name }
+          }))
+      ];
+      const choice = (
+        await vscode.window.showQuickPick(items, {
+          title: 'New worktree',
+          placeHolder: 'Check out a branch in a new folder, or start a new branch',
+          matchOnDescription: true,
+          ignoreFocusOut: true
+        })
+      )?.choice;
+      if (!choice) return null;
+
+      if (choice.branch) {
+        const dir = siblingFolder(repo, choice.branch);
+        return [['worktree', 'add', dir, choice.branch], () => worktreeReady(dir)];
+      }
+      if (choice.remote) {
+        const remote = remotes.find((r) => r.ref.name === choice.remote)!.ref.remote!;
+        const local = localOf(remote, choice.remote);
+        const dir = siblingFolder(repo, local);
+        return [
+          ['worktree', 'add', '--track', '-b', local, dir, choice.remote],
+          () => worktreeReady(dir)
+        ];
+      }
+      const from =
+        choice.from ??
+        (
+          await vscode.window.showQuickPick(
+            [...locals, ...remotes].map((r) => ({
+              label: r.ref.name,
+              description: ago(r.date)
+            })),
+            { title: 'New branch from…', ignoreFocusOut: true }
+          )
+        )?.label;
+      if (!from) return null;
+      const name = await askBranchName(git, repo, `New worktree branch from ${from}`, localNames);
+      if (!name) return null;
+      const dir = siblingFolder(repo, name);
+      const fromRemote = remotes.find((r) => r.ref.name === from)?.ref.remote;
+      return [
+        // Start from the remote's latest state, not from whenever it was last fetched
+        ...(fromRemote ? [['fetch', fromRemote, localOf(fromRemote, from)]] : []),
+        // --no-track: the new branch must not push to the branch it started from
+        ['worktree', 'add', '--no-track', '-b', name, dir, from],
+        () => worktreeReady(dir)
+      ];
+    }
     case 'addWorktree': {
       const branch = a.isBranch
         ? a.target
@@ -237,23 +397,7 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
       const add = a.isBranch
         ? ['worktree', 'add', dir, a.target]
         : ['worktree', 'add', ...(branch ? ['-b', branch] : ['--detach']), dir, a.target];
-      return [
-        add,
-        a.open
-          ? () => openFolder(dir)
-          : () =>
-              void vscode.window
-                .showInformationMessage(
-                  `Worktree ready at ${dir}`,
-                  'Open in New Window',
-                  'Open Terminal'
-                )
-                .then((choice) =>
-                  choice === 'Open in New Window'
-                    ? openFolder(dir)
-                    : choice && vscode.window.createTerminal({ cwd: dir, name: folder(dir) }).show()
-                )
-      ];
+      return [add, a.open ? () => openFolder(dir) : () => worktreeReady(dir)];
     }
     case 'removeWorktree': {
       // One confirmation, only if something would be lost, listing everything that would be

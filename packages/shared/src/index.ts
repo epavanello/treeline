@@ -47,8 +47,11 @@ export interface Commit {
   refs: Ref[];
   /** Set on stash rows: the commit the stash was taken on. */
   stashBase?: string;
-  /** Relative to the compare base: only on HEAD (`ahead`) or only on the base (`behind`). */
-  side?: 'ahead' | 'behind';
+  /**
+   * Relative to the compare base: only on HEAD (`ahead`), only on the base (`behind`), or on one
+   * side with an equivalent commit (same changes, another hash) on the other (`same`).
+   */
+  side?: Side;
 }
 
 export interface GraphQuery {
@@ -61,18 +64,38 @@ export interface GraphQuery {
   maxCommits: number;
   /** Branch to compare HEAD with; null = the default (origin/HEAD, then main/master). */
   base: string | null;
-  /** Show only what diverged between HEAD and the base (plus their merge base). */
-  focus: boolean;
+  /** Show only these kinds of commits relative to the base (plus their merge base); empty = all. */
+  focus: Side[];
 }
+
+export type Side = 'ahead' | 'behind' | 'same';
 
 export interface Compare {
   base: string;
-  /** Commits on HEAD that are not on the base. */
+  /** Commits on HEAD whose changes are not on the base. */
   ahead: number;
-  /** Commits on the base that are not on HEAD. */
+  /** Commits on the base whose changes are not on HEAD. */
   behind: number;
+  /**
+   * Commits on HEAD whose changes are already on the base under another hash: the branch was
+   * rebased onto it, or cherry-picked / "rebase and merge"d into it.
+   */
+  same: number;
   /** Where HEAD forked from the base; null for unrelated histories. */
   mergeBase: string | null;
+  /** Commit date (Unix seconds) of the merge base. */
+  mergeBaseDate: number | null;
+  /**
+   * Most of HEAD's commits are copies of the base's: one side's history was rewritten (filter-repo,
+   * a forced rebase), so ahead/behind by hash would be mostly noise.
+   */
+  rewritten: boolean;
+}
+
+/** A worktree compared with a base, and its uncommitted changes: loaded when its card opens. */
+export interface WorktreeDetails {
+  compare: Compare | null;
+  files: FileChange[];
 }
 
 export interface GraphData {
@@ -88,6 +111,8 @@ export interface GraphData {
   /** Local branches and tags, most recent first (whether or not their commit is loaded). */
   heads: RefSummary[];
   tags: RefSummary[];
+  /** Remote-tracking branches, most recent first. */
+  remoteHeads: RefSummary[];
   /** HEAD vs the base branch; null when there is no HEAD or no base. */
   compare: Compare | null;
   hasMore: boolean;
@@ -101,6 +126,8 @@ export interface RefSummary {
   date: number;
   /** Subject of the commit it points to. */
   subject: string;
+  /** Branches only: commits ahead of / behind the compare base (by hash), when there is one. */
+  vsBase?: { ahead: number; behind: number };
 }
 
 export interface Worktree {
@@ -206,6 +233,11 @@ export type Action =
       /** Open it in a new window right away instead of offering to. */
       open?: boolean;
     }
+  /**
+   * Picks what a new worktree checks out: a free local branch, a remote branch, or a new branch from
+   * `base` (default: the repository's default base) or from another branch.
+   */
+  | { type: 'newWorktree'; base?: string }
   /** Optionally deletes the branch that was checked out there too. */
   | { type: 'removeWorktree'; path: string; deleteBranch?: string }
   /** Removes the worktree and checks its branch out in the main worktree, carrying its changes. */
@@ -217,7 +249,24 @@ export interface ViewSettings {
   worktrees: boolean;
   branches: boolean;
   tags: boolean;
+  /** The commit list's optional columns (Graph and Description are always shown). */
+  columns: Record<Column, boolean>;
+  /** Changed files of a commit as a folder tree rather than a flat list. */
+  fileTree: boolean;
+  /** Column widths in px; `graph: null` fits the graph's lanes. Description takes the rest. */
+  widths: { graph: number | null } & Record<Column, number>;
 }
+
+export type Column = 'date' | 'author' | 'commit';
+
+export const DEFAULT_VIEW: ViewSettings = {
+  worktrees: true,
+  branches: true,
+  tags: true,
+  columns: { date: true, author: true, commit: true },
+  fileTree: false,
+  widths: { graph: null, date: 170, author: 140, commit: 76 }
+};
 
 export interface HostApi {
   getRepos(): Promise<Repo[]>;
@@ -233,6 +282,7 @@ export interface HostApi {
   /** Writes a commit message for the current changes into the Source Control input box. */
   generateCommitMessage(repo: string): Promise<void>;
   copy(text: string): Promise<void>;
+  getWorktreeDetails(path: string, base: string | null): Promise<WorktreeDetails>;
   getView(): Promise<ViewSettings>;
   setView(view: ViewSettings): Promise<void>;
 }
@@ -258,6 +308,7 @@ export function actionTarget(a: Action): string {
       return UNCOMMITTED;
     case 'fetch':
     case 'pruneWorktrees':
+    case 'newWorktree':
       return a.type;
   }
   if ('path' in a) return a.path;
@@ -283,3 +334,12 @@ export function ago(unix: number, now = Date.now() / 1000) {
     if (Math.abs(diff) >= seconds) return relative.format(Math.round(diff / seconds), unit);
   return 'just now';
 }
+
+/** "5m", "3h", "2d", "3w", "4mo", "1y": how long ago, compactly, for chips and lists. */
+export function since(unix: number, now = Date.now() / 1000) {
+  const diff = now - unix;
+  for (const [unit, seconds] of UNITS)
+    if (diff >= seconds) return `${Math.floor(diff / seconds)}${SHORT[unit]}`;
+  return 'now';
+}
+const SHORT = { year: 'y', month: 'mo', week: 'w', day: 'd', hour: 'h', minute: 'm' } as const;

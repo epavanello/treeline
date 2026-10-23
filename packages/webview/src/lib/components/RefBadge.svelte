@@ -9,7 +9,9 @@
     color,
     current,
     status,
-    busy = false
+    busy = false,
+    remote,
+    onremotemenu
   }: {
     ref: Ref;
     color: string;
@@ -18,6 +20,10 @@
     status?: WorktreeStatus | null;
     /** An action is running on it: a spinner replaces the icon. */
     busy?: boolean;
+    /** Its upstream, when it points to the same commit: shown as a segment of this badge. */
+    remote?: Ref;
+    /** Right-click on that segment: the remote branch's menu. */
+    onremotemenu?: (e: MouseEvent, remote: Ref) => void;
   } = $props();
 
   const Icon = $derived(
@@ -38,7 +44,9 @@
   style="--c: {color}"
   title={ref.worktree
     ? `${ref.name} is checked out in the worktree ${ref.worktree}${status ? `\n${describeStatus(status)}` : ''}`
-    : ref.name}
+    : remote
+      ? `${ref.name}, in sync with ${remote.name}`
+      : ref.name}
 >
   {#if busy}
     <LoaderCircle class="size-3 shrink-0 animate-spin" />
@@ -46,6 +54,16 @@
     <Icon class="size-3 shrink-0" />
   {/if}
   <span class="truncate">{ref.name}</span>
+  {#if remote}
+    <span
+      class="flex shrink-0 items-center gap-0.5 rounded-sm border-l border-current/30 pl-1 opacity-80 data-menu-open:bg-current/15"
+      role="presentation"
+      title="{remote.name}: same commit · right-click for the remote branch's actions"
+      oncontextmenu={(e) => onremotemenu?.(e, remote)}
+    >
+      <Cloud class="size-3" />{remote.remote}
+    </span>
+  {/if}
   {#if status}
     <WorktreeState {status} />
   {/if}

@@ -173,7 +173,7 @@ export function registerWorktreeView(
     ),
     vscode.commands.registerCommand('treeline.worktree.add', async () => {
       const repo = await firstRepo();
-      if (repo) await run(repo, { type: 'addWorktree', target: 'HEAD' });
+      if (repo) await run(repo, { type: 'newWorktree' });
     }),
     vscode.commands.registerCommand('treeline.worktree.prune', async () => {
       const repo = await firstRepo();

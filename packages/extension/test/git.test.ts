@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { UNCOMMITTED } from '@treeline/shared';
+import { UNCOMMITTED, type Side } from '@treeline/shared';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Git } from '../src/git';
 import { createFixtureRepo } from './fixture';
@@ -19,7 +19,7 @@ const query = (over = {}) => ({
   branches: [],
   authors: [],
   base: null,
-  focus: false,
+  focus: [],
   showRemotes: true,
   maxCommits: 100,
   ...over
@@ -134,6 +134,11 @@ describe('compare with a base branch', () => {
   it('defaults to origin/main and marks diverging commits', async () => {
     const g = await git.getGraph(query());
     expect(g.compare).toMatchObject({ base: 'origin/main', ahead: 1, behind: 0 });
+    // Every branch knows where it stands against the base, remote ones included
+    expect(g.heads.find((h) => h.ref.name === 'topic')?.vsBase).toEqual({ ahead: 1, behind: 0 });
+    expect(g.remoteHeads.map((r) => [r.ref.name, r.vsBase])).toEqual([
+      ['origin/main', { ahead: 0, behind: 0 }]
+    ]);
     expect(g.commits.filter((c) => c.side).map((c) => [c.subject, c.side])).toEqual([
       ['Main after topic', 'ahead']
     ]);
@@ -142,23 +147,75 @@ describe('compare with a base branch', () => {
   it('compares with any branch', async () => {
     const g = await git.getGraph(query({ base: 'topic' }));
     const merge = g.commits.find((c) => c.subject === 'Merge feature')!;
-    expect(g.compare).toEqual({ base: 'topic', ahead: 1, behind: 1, mergeBase: merge.hash });
+    expect(g.compare).toMatchObject({
+      base: 'topic',
+      ahead: 1,
+      behind: 1,
+      same: 0,
+      mergeBase: merge.hash,
+      mergeBaseDate: merge.date,
+      rewritten: false
+    });
     expect(g.commits.find((c) => c.subject === 'Topic commit')?.side).toBe('behind');
   });
 
-  it('focus shows only the divergence and the merge base', async () => {
-    const g = await git.getGraph(query({ base: 'topic', focus: true }));
-    expect(g.commits.map((c) => c.subject)).toEqual([
+  it('focus shows only the chosen sides of the divergence and the merge base', async () => {
+    const subjects = async (focus: Side[]) =>
+      (await git.getGraph(query({ base: 'topic', focus }))).commits.map((c) => c.subject);
+    expect(await subjects(['ahead', 'behind'])).toEqual([
       'Uncommitted Changes (2)',
       'On main: wip on main',
       'Main after topic',
       'Topic commit',
       'Merge feature'
     ]);
+    expect(await subjects(['behind'])).toEqual(['Topic commit', 'Merge feature']);
+    expect(await subjects(['ahead'])).toEqual([
+      'Uncommitted Changes (2)',
+      'On main: wip on main',
+      'Main after topic',
+      'Merge feature'
+    ]);
+  });
+
+  it('recognises commits already on the base under another hash (rebase and merge)', async () => {
+    // What GitHub's "rebase and merge" does: same changes and message, new commit
+    const run = (...args: string[]) => execFileSync('git', args, { cwd: dir }).toString().trim();
+    const copy = run('commit-tree', 'HEAD^{tree}', '-p', 'HEAD^', '-m', 'Main after topic');
+    run('branch', 'rebased', copy);
+    const g = await git.getGraph(query({ base: 'rebased' }));
+    expect(g.compare).toMatchObject({ ahead: 0, behind: 0, same: 1 });
+    expect(g.commits.filter((c) => c.side).map((c) => [c.subject, c.side])).toEqual([
+      ['Main after topic', 'same'],
+      ['Main after topic', 'same']
+    ]);
+    run('branch', '-D', 'rebased');
+  });
+
+  it('flags a rewritten history: most commits are copies of the base', async () => {
+    // A repository of its own: a few more commits, then main's history copied commit by commit
+    // (same trees and messages, new hashes), as filter-repo or a forced rebase would
+    const { dir: other, git: sh } = createFixtureRepo();
+    for (const n of [1, 2, 3]) sh('commit', '-q', '--allow-empty', '-m', `More work ${n}`);
+    let copy = '';
+    for (const hash of sh('rev-list', '--first-parent', '--reverse', 'HEAD').trim().split('\n')) {
+      const message = sh('log', '-1', '--format=%B', hash).trim();
+      copy = sh(
+        'commit-tree',
+        `${hash}^{tree}`,
+        ...(copy ? ['-p', copy] : []),
+        '-m',
+        message
+      ).trim();
+    }
+    sh('branch', 'rewritten', copy);
+    const g = await git.getGraph(query({ repo: other, base: 'rewritten' }));
+    expect(g.compare).toMatchObject({ mergeBase: null, rewritten: true });
+    expect(g.compare!.same).toBeGreaterThan(g.compare!.ahead);
   });
 
   it('ignores a base that does not exist', async () => {
-    const g = await git.getGraph(query({ base: 'gone', focus: true }));
+    const g = await git.getGraph(query({ base: 'gone', focus: ['ahead'] }));
     expect(g.compare).toBeNull();
     expect(g.commits).toHaveLength(10);
   });
@@ -196,6 +253,11 @@ describe('worktrees', () => {
     // Seen from the linked worktree, it is the current one and main is elsewhere
     const fromLinked = await git.getWorktrees(path);
     expect(fromLinked.map((w) => w.current)).toEqual([false, true]);
+
+    // Its card: compared with a base, and what it hasn't committed
+    const details = await git.worktreeDetails(linked.path, 'main');
+    expect(details.compare).toMatchObject({ base: 'main', ahead: 1, behind: 1, rewritten: false });
+    expect(details.files.map((f) => `${f.status} ${f.path}`)).toEqual(['U wip.txt']);
 
     rmSync(path, { recursive: true });
     const [, gone] = await git.getWorktrees(dir);

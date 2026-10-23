@@ -82,7 +82,7 @@
         <Resizable.Pane order={1}>
           <CommitList bind:scroller />
         </Resizable.Pane>
-        {#if app.selected || app.branchDiff}
+        {#if app.selected || app.branchDiff || app.worktreePanel}
           <Resizable.Handle />
           <Resizable.Pane order={2} defaultSize={40} minSize={15}>
             <DetailsPanel />

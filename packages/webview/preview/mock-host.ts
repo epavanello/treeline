@@ -3,14 +3,20 @@
  * (`pnpm --filter @treeline/webview preview`). Answers RPC calls from
  * fixture.json and logs everything else.
  */
-import { actionTarget, type Action, type GraphQuery, type RpcRequest } from '@treeline/shared';
+import {
+  actionTarget,
+  DEFAULT_VIEW,
+  type Action,
+  type GraphQuery,
+  type RpcRequest
+} from '@treeline/shared';
 import fixture from './fixture.json';
 
 const reply = (id: number, result: unknown) =>
   setTimeout(() => window.postMessage({ id, result }, '*'), 30);
 
 let state: unknown;
-let view = { worktrees: true, branches: true, tags: true };
+let view = structuredClone(DEFAULT_VIEW);
 (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
   getState: () => state,
   setState: (s: unknown) => (state = s),
@@ -25,7 +31,9 @@ let view = { worktrees: true, branches: true, tags: true };
           .filter((c) => !q.authors.length || q.authors.includes(c.author))
           .filter(
             (c) =>
-              !q.focus || c.side || c.hash === '*' || c.hash === fixture.graph.compare?.mergeBase
+              !q.focus.length ||
+              (c.side && q.focus.includes(c.side)) ||
+              c.hash === fixture.graph.compare?.mergeBase
           );
         const commits = all.slice(0, q.maxCommits);
         return reply(id, {
@@ -44,6 +52,14 @@ let view = { worktrees: true, branches: true, tags: true };
         const files = Object.values(fixture.details).flatMap((d) => d.files);
         return reply(id, [...new Map(files.map((f) => [f.path, f])).values()]);
       }
+      case 'getWorktreeDetails':
+        return reply(
+          id,
+          (fixture.worktreeDetails as Record<string, unknown>)[args[0] as string] ?? {
+            compare: null,
+            files: []
+          }
+        );
       case 'getView':
         return reply(id, view);
       case 'setView':

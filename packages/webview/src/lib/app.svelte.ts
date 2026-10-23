@@ -1,11 +1,15 @@
 import { tick } from 'svelte';
 import {
+  DEFAULT_VIEW,
   UNCOMMITTED,
   type Commit,
   type CommitDetails,
   type FileChange,
   type GraphData,
   type Repo,
+  type Side,
+  type Worktree,
+  type WorktreeDetails,
   type ViewSettings
 } from '@treeline/shared';
 import { layout } from './graph';
@@ -19,7 +23,7 @@ interface Persisted {
   authors?: string[];
   showRemotes?: boolean;
   base?: string | null;
-  focus?: boolean;
+  focus?: Side[];
 }
 
 /** All webview state in one place. Components read it directly. */
@@ -35,7 +39,7 @@ class App {
   /** Branch HEAD is compared with; null = the host's default (origin/HEAD, main…). */
   base = $state<string | null>(null);
   /** Show only what diverged between HEAD and the base. */
-  focus = $state(false);
+  focus = $state<Side[]>([]);
 
   data = $state<GraphData | null>(null);
   error = $state<string | null>(null);
@@ -46,12 +50,18 @@ class App {
   compareWith = $state<Commit | null>(null);
   details = $state<CommitDetails | null>(null);
   compareFiles = $state<FileChange[] | null>(null);
+  /** Another worktree's uncommitted changes, shown in the details panel (its chip was clicked). */
+  worktreePanel = $state<{ worktree: Worktree; files: FileChange[] } | null>(null);
   /** Everything that changed since HEAD forked from the base, working tree included. */
   branchDiff = $state<{ base: string; mergeBase: string; files: FileChange[] } | null>(null);
 
   find = $state('');
   /** Which navigation rows are shown (worktrees, branches, tags). */
-  view = $state<ViewSettings>({ worktrees: true, branches: true, tags: true });
+  view = $state<ViewSettings>(structuredClone(DEFAULT_VIEW));
+  /** Worktree cards' comparison and uncommitted files, by path: loaded on hover, `null` while loading. */
+  worktreeDetails = $state<Record<string, WorktreeDetails | null>>({});
+  /** A context menu is open: tooltips stay hidden meanwhile (see ActionMenu, Tip). */
+  menuOpen = $state(false);
   /** A short-lived message under the toolbar (see `flash`). */
   notice = $state<string | null>(null);
   /** `actionTarget`s of the actions whose git commands are running (host `busy` events). */
@@ -99,6 +109,36 @@ class App {
     this.scrollTo(hash);
   }
 
+  /**
+   * Every worktree's card details, one at a time after each load, so a rewritten history is
+   * flagged without hovering. The host caches comparisons until a HEAD moves, so this stays cheap.
+   */
+  private async preloadWorktreeDetails(data: GraphData) {
+    const seq = this.loadSeq;
+    for (const w of data.worktrees) {
+      if (w.prunable || seq !== this.loadSeq) continue;
+      try {
+        this.worktreeDetails[w.path] = await host.getWorktreeDetails(
+          w.path,
+          data.compare?.base ?? this.base
+        );
+      } catch {
+        // A worktree being removed meanwhile: its card simply has no details
+      }
+    }
+  }
+
+  async loadWorktreeDetails(path: string) {
+    if (path in this.worktreeDetails) return;
+    this.worktreeDetails[path] = null;
+    try {
+      const base = this.data?.compare?.base ?? this.base;
+      this.worktreeDetails[path] = await host.getWorktreeDetails(path, base);
+    } catch {
+      delete this.worktreeDetails[path];
+    }
+  }
+
   /** Whether an action is running on any of these targets (worktree path, ref name, hash…). */
   isRunning(...keys: (string | null | undefined)[]) {
     return keys.some((k) => k && this.running.includes(k));
@@ -115,7 +155,8 @@ class App {
     this.authors = saved.authors ?? [];
     this.showRemotes = saved.showRemotes ?? true;
     this.base = saved.base ?? null;
-    this.focus = saved.focus ?? false;
+    // Older saved state had a boolean here
+    this.focus = Array.isArray(saved.focus) ? saved.focus : [];
     void host.getView().then((v) => (this.view = v));
     await this.loadRepos(saved.repo);
     onHostEvent((e) => {
@@ -153,11 +194,11 @@ class App {
       authors: $state.snapshot(this.authors),
       showRemotes: this.showRemotes,
       base: this.base,
-      focus: this.focus
+      focus: $state.snapshot(this.focus)
     });
   }
 
-  async refresh() {
+  async refresh(): Promise<void> {
     if (!this.repo) return;
     this.persist();
     const seq = ++this.loadSeq;
@@ -170,17 +211,33 @@ class App {
         showRemotes: this.showRemotes,
         maxCommits: this.maxCommits,
         base: this.base,
-        focus: this.focus
+        focus: $state.snapshot(this.focus)
       });
       if (seq !== this.loadSeq) return;
+      // Side filters belong to one comparison: reset them when the branch changed (a checkout),
+      // and drop a side that has no commits left (e.g. ahead after a rebase), then reload
+      if (this.focus.length) {
+        const switched = !!this.data && this.data.currentBranch !== data.currentBranch;
+        const c = data.compare;
+        const keep = switched || !c ? [] : this.focus.filter((side) => c[side] > 0);
+        if (keep.length !== this.focus.length) {
+          this.focus = keep;
+          return this.refresh();
+        }
+      }
       this.data = data;
       this.error = null;
+      void this.preloadWorktreeDetails(data);
       const seen = data.commits.filter((c) => c.hash !== UNCOMMITTED).map((c) => c.author);
       this.knownAuthors = [...new Set([...this.knownAuthors, ...this.authors, ...seen])].sort(
         (a, b) => a.localeCompare(b)
       );
       // Keep what the details panel shows up to date
-      if (this.branchDiff) void this.openBranchDiff();
+      if (this.worktreePanel) {
+        const still = data.worktrees.find((w) => w.path === this.worktreePanel!.worktree.path);
+        if (still) void this.openWorktree(still);
+        else this.closeDetails();
+      } else if (this.branchDiff) void this.openBranchDiff();
       else if (this.selected) {
         const still = data.commits.find((c) => c.hash === this.selected!.hash);
         if (still) void this.select(still);
@@ -218,10 +275,29 @@ class App {
     void this.refresh();
   }
 
-  toggleFocus() {
-    this.focus = !this.focus;
+  /** Show (or stop showing) only one side of the divergence: ahead, behind, same. */
+  toggleFocus(side: Side) {
+    this.focus = this.focus.includes(side)
+      ? this.focus.filter((s) => s !== side)
+      : [...this.focus, side];
     this.maxCommits = PAGE;
     void this.refresh();
+  }
+
+  /**
+   * A worktree's uncommitted changes in the details panel; for the worktree this graph shows, its
+   * Uncommitted Changes row.
+   */
+  async openWorktree(w: Worktree) {
+    if (w.current) {
+      const row = this.data?.commits.find((c) => c.hash === UNCOMMITTED);
+      if (row) return this.select(row);
+      return this.reveal(w.head);
+    }
+    const details = await host.getWorktreeDetails(w.path, this.data?.compare?.base ?? this.base);
+    this.worktreeDetails[w.path] = details;
+    this.selected = this.compareWith = this.details = this.compareFiles = this.branchDiff = null;
+    this.worktreePanel = { worktree: w, files: details.files };
   }
 
   /** Opens (or refreshes) the "everything since I forked from the base" file list. */
@@ -229,7 +305,7 @@ class App {
     const c = this.data?.compare;
     if (!this.repo || !c?.mergeBase) return;
     const files = await host.compare(this.repo, c.mergeBase, UNCOMMITTED);
-    this.selected = this.compareWith = this.details = this.compareFiles = null;
+    this.selected = this.compareWith = this.details = this.compareFiles = this.worktreePanel = null;
     this.branchDiff = { base: c.base, mergeBase: c.mergeBase, files };
   }
 
@@ -258,7 +334,7 @@ class App {
       return;
     }
     this.selected = commit;
-    this.branchDiff = null;
+    this.branchDiff = this.worktreePanel = null;
     this.compareWith = null;
     this.compareFiles = null;
     this.details = await host.getDetails(this.repo, $state.snapshot(commit));
@@ -269,7 +345,7 @@ class App {
     this.compareWith = null;
     this.details = null;
     this.compareFiles = null;
-    this.branchDiff = null;
+    this.branchDiff = this.worktreePanel = null;
   }
 }
 

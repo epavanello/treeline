@@ -1,11 +1,13 @@
 <script lang="ts">
   import { CloudDownload, RefreshCw, Rows3, Search } from '@lucide/svelte';
   import * as Popover from '$lib/components/ui/popover';
+  import { DEFAULT_VIEW } from '@treeline/shared';
   import { app } from '$lib/app.svelte';
   import { host } from '$lib/rpc';
   import { Button } from '$lib/components/ui/button';
   import { Checkbox } from '$lib/components/ui/checkbox';
   import * as Select from '$lib/components/ui/select';
+  import BranchPicker from './BranchPicker.svelte';
   import MultiFilter from './MultiFilter.svelte';
   import Tip from './Tip.svelte';
 
@@ -18,6 +20,11 @@
     ['worktrees', 'Worktrees', 'Every worktree of this repository and its status'],
     ['branches', 'Branches', 'Local branches, most recently committed first'],
     ['tags', 'Tags', 'Tags, most recent first']
+  ] as const;
+  const COLUMNS = [
+    ['date', 'Date'],
+    ['author', 'Author'],
+    ['commit', 'Commit']
   ] as const;
 
   const repoName = $derived(app.repos.find((r) => r.path === app.repo)?.name ?? 'No repository');
@@ -56,16 +63,7 @@
 
   <div class="flex items-center gap-1.5">
     <span class="text-muted-foreground">Branches</span>
-    <MultiFilter
-      items={app.data?.branches ?? []}
-      selected={app.branches}
-      noun="branches"
-      hint={{
-        title: 'Branches',
-        body: 'Show only the history of the branches you pick (any number). Show All includes every branch, tag and the current HEAD.'
-      }}
-      onchange={(v) => app.setBranches(v)}
-    />
+    <BranchPicker />
   </div>
 
   <div class="flex items-center gap-1.5">
@@ -152,6 +150,28 @@
             </span>
           </label>
         {/each}
+        <p class="mt-1 border-t px-1.5 pt-2 pb-1 font-semibold">Columns</p>
+        <div class="flex flex-wrap gap-x-3 px-1.5 py-1">
+          {#each COLUMNS as [key, label] (key)}
+            <label class="flex items-center gap-1.5">
+              <Checkbox
+                checked={app.view.columns[key]}
+                onCheckedChange={(v) =>
+                  app.setView({ columns: { ...app.view.columns, [key]: !!v } })}
+              />
+              {label}
+            </label>
+          {/each}
+        </div>
+        <button
+          class="w-full rounded-sm px-1.5 py-1 text-left text-muted-foreground hover:bg-accent"
+          onclick={() => app.setView({ widths: { ...DEFAULT_VIEW.widths } })}
+        >
+          Reset column widths
+          <span class="block text-[11px]"
+            >Or drag a column edge; double-click it to reset just that one</span
+          >
+        </button>
       </Popover.Content>
     </Popover.Root>
     <Button

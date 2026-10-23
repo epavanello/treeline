@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { HostApi, HostEvent, RpcRequest, RpcResponse } from '@treeline/shared';
-import type { Action, ViewSettings } from '@treeline/shared';
+import { DEFAULT_VIEW, type Action, type ViewSettings } from '@treeline/shared';
 import { openFolder } from './actions';
 import { openDiff, revisionUri } from './diff';
 import type { Git } from './git';
@@ -52,6 +52,7 @@ export class GraphPanel {
       getGraph: (q) => git.getGraph(q),
       getDetails: (repo, commit) => git.getDetails(repo, commit),
       compare: (repo, from, to) => git.compare(repo, from, to),
+      getWorktreeDetails: (path, base) => git.worktreeDetails(path, base),
       run,
       openDiff: async (target) => void (await openDiff(git, target)),
       generateCommitMessage: commitMessage,
@@ -62,12 +63,16 @@ export class GraphPanel {
       openScm: async () => void (await vscode.commands.executeCommand('workbench.view.scm')),
       openFolder: async (folder) => void (await openFolder(folder)),
       copy: async (text) => vscode.env.clipboard.writeText(text),
-      getView: async () => ({
-        worktrees: true,
-        branches: true,
-        tags: true,
-        ...ctx.globalState.get<Partial<ViewSettings>>('view')
-      }),
+      getView: async () => {
+        // Saved settings may predate newer fields: fill them in from the defaults
+        const saved = ctx.globalState.get<Partial<ViewSettings>>('view') ?? {};
+        return {
+          ...DEFAULT_VIEW,
+          ...saved,
+          columns: { ...DEFAULT_VIEW.columns, ...saved.columns },
+          widths: { ...DEFAULT_VIEW.widths, ...saved.widths }
+        };
+      },
       setView: async (view) => void (await ctx.globalState.update('view', view))
     };
 

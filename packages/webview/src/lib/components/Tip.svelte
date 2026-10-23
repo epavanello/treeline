@@ -10,6 +10,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { mergeProps } from 'svelte-toolbelt';
+  import { app } from '$lib/app.svelte';
   import * as Tooltip from '$lib/components/ui/tooltip';
 
   /**
@@ -34,7 +35,8 @@
 </script>
 
 {#if h || content}
-  <Tooltip.Root bind:open>
+  <!-- No tooltips while a context menu is open: hovering would bring them back over the menu -->
+  <Tooltip.Root bind:open={() => open && !app.menuOpen, (v) => (open = v)}>
     <Tooltip.Trigger>
       {#snippet child({ props })}
         <!-- A context menu opening on the element replaces its tooltip -->

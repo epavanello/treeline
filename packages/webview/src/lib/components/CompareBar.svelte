@@ -1,13 +1,14 @@
 <script lang="ts">
-  import type { Action } from '@treeline/shared';
+  import { ago, type Action, type Compare } from '@treeline/shared';
   import {
     ArrowDown,
     ArrowUp,
     ArrowUpToLine,
-    Crosshair,
+    Equal,
     FileDiff,
     GitBranch,
-    GitMerge
+    GitMerge,
+    TriangleAlert
   } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import { host } from '$lib/rpc';
@@ -21,6 +22,36 @@
   const run = (action: Action) => app.repo && host.run(app.repo, action);
   const toggle = 'aria-pressed:bg-selection aria-pressed:text-selection-foreground';
   const commits = (n: number) => `${n} commit${n === 1 ? '' : 's'}`;
+
+  const sides = (c: Compare) => [
+    {
+      side: 'ahead' as const,
+      count: c.ahead,
+      icon: ArrowUp,
+      color: 'text-ahead',
+      label: `${c.ahead} ahead`,
+      title: `${commits(c.ahead)} ahead`,
+      body: `On ${head} but not on ${c.base}: what a pull request into ${c.base} would bring. Tinted green in the graph.`
+    },
+    {
+      side: 'behind' as const,
+      count: c.behind,
+      icon: ArrowDown,
+      color: 'text-behind',
+      label: `${c.behind} behind`,
+      title: `${commits(c.behind)} behind`,
+      body: `On ${c.base} but not on ${head} yet. Tinted blue in the graph. Rebase or Merge to bring them in.`
+    },
+    {
+      side: 'same' as const,
+      count: c.same,
+      icon: Equal,
+      color: 'text-same',
+      label: `${c.same} already in ${c.base}`,
+      title: `${commits(c.same)} already in ${c.base}`,
+      body: `Their changes are on ${c.base} under other commits: ${head} was rebased onto it, or merged with "Rebase and merge" or a cherry-pick. They're dimmed in the graph, together with their copies.${c.ahead ? '' : ` Nothing on ${head} is missing from ${c.base}: the branch is merged.`}`
+    }
+  ];
 </script>
 
 {#if app.data?.head}
@@ -32,30 +63,46 @@
       <GitBranch class="size-3.5" />{head}
     </span>
     {#if c}
-      <Tip
-        hint={{
-          title: `${commits(c.ahead)} ahead`,
-          body: `On ${head} but not on ${c.base}: what a pull request into ${c.base} would bring. Tinted green in the graph.`
-        }}
-      >
-        {#snippet children(trigger)}
-          <span {...trigger} class="flex cursor-default items-center gap-0.5 text-ahead">
-            <ArrowUp class="size-3.5" />{c.ahead} ahead
-          </span>
-        {/snippet}
-      </Tip>
-      <Tip
-        hint={{
-          title: `${commits(c.behind)} behind`,
-          body: `On ${c.base} but not on ${head} yet. Tinted blue in the graph. Rebase or Merge to bring them in.`
-        }}
-      >
-        {#snippet children(trigger)}
-          <span {...trigger} class="flex cursor-default items-center gap-0.5 text-behind">
-            <ArrowDown class="size-3.5" />{c.behind} behind
-          </span>
-        {/snippet}
-      </Tip>
+      <!-- The counters are filters too: show only those commits (any combination), click again for all -->
+      {#each sides(c) as f (f.side)}
+        {#if f.count || app.focus.includes(f.side)}
+          <Button
+            variant="ghost"
+            size="xs"
+            class="{toggle} {f.color}"
+            icon={f.icon}
+            aria-pressed={app.focus.includes(f.side)}
+            hint={{
+              title: f.title,
+              body: f.body,
+              note: app.focus.includes(f.side)
+                ? 'Click to stop filtering on these.'
+                : 'Click to show only these in the graph (with the fork point); combine with the others.'
+            }}
+            onclick={() => app.toggleFocus(f.side)}
+          >
+            {f.label}
+          </Button>
+        {/if}
+      {/each}
+      {#if c.rewritten}
+        <Tip
+          hint={{
+            title: 'Rewritten history',
+            body: `${commits(c.same)} of ${head} are copies of commits on ${c.base}, and the two histories ${c.mergeBaseDate ? `only meet ${ago(c.mergeBaseDate)}` : 'never meet'}: one side was rewritten (filter-repo, a forced rebase). Ahead and behind are mostly noise.`,
+            warn: `Rather than merging, start a fresh branch from ${c.base} and bring your own changes over (the ↑ commits, and anything uncommitted).`
+          }}
+        >
+          {#snippet children(trigger)}
+            <span
+              {...trigger}
+              class="flex cursor-default items-center gap-1 rounded-sm border border-dirty/40 bg-dirty/10 px-1.5 leading-5 text-dirty"
+            >
+              <TriangleAlert class="size-3.5" /> Rewritten history
+            </span>
+          {/snippet}
+        </Tip>
+      {/if}
     {/if}
     <span class="flex items-center gap-1.5">
       <span class="text-muted-foreground">vs</span>
@@ -105,21 +152,6 @@
             Merge
           </Button>
         {/if}
-        <Button
-          variant="ghost"
-          size="xs"
-          class={toggle}
-          icon={Crosshair}
-          aria-pressed={app.focus}
-          hint={{
-            title: app.focus ? 'Show all commits' : 'Only what diverged',
-            body: `Shows only the commits that differ between ${head} and ${c.base}, down to the fork point where ${head} started. Click again to see the whole graph.`
-          }}
-          disabled={!c.ahead && !c.behind && !app.focus}
-          onclick={() => app.toggleFocus()}
-        >
-          Only ↑↓
-        </Button>
         <Button
           variant="outline"
           size="xs"

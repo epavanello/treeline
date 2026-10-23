@@ -14,7 +14,7 @@ const graph = await git.getGraph({
   branches: [],
   authors: [],
   base: null,
-  focus: false,
+  focus: [],
   showRemotes: true,
   maxCommits: 600
 });
@@ -23,8 +23,16 @@ const details = Object.fromEntries(
     graph.commits.slice(0, 60).map(async (c) => [c.hash, await git.getDetails(dir, c)] as const)
   )
 );
+// What each worktree card loads on hover
+const worktreeDetails = Object.fromEntries(
+  await Promise.all(
+    graph.worktrees
+      .filter((w) => !w.prunable)
+      .map(async (w) => [w.path, await git.worktreeDetails(w.path, graph.compare?.base ?? null)])
+  )
+);
 writeFileSync(
   new URL('../../webview/preview/fixture.json', import.meta.url),
-  JSON.stringify({ repo: dir, graph, details }, null, 2)
+  JSON.stringify({ repo: dir, graph, details, worktreeDetails }, null, 2)
 );
 console.log(`wrote ${graph.commits.length} commits`);

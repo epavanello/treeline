@@ -1,6 +1,7 @@
 <script lang="ts">
   import { ago, type Worktree } from '@treeline/shared';
   import { FolderGit2, LoaderCircle, Plus, TriangleAlert } from '@lucide/svelte';
+  import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
   import { worktreeItems } from '$lib/menus';
   import { host } from '$lib/rpc';
@@ -11,7 +12,7 @@
   import Tip from './Tip.svelte';
   import WorktreeState from './WorktreeState.svelte';
 
-  /** Every worktree of the repository, one chip each. Shown when there is more than the main one. */
+  /** Every worktree of the repository (the main one included), one chip each. */
   const worktrees = $derived(app.data?.worktrees ?? []);
   const folder = (path: string) => path.split(/[\\/]/).pop();
 
@@ -19,15 +20,16 @@
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 </script>
 
-{#if app.view.worktrees && worktrees.length > 1}
+{#if app.view.worktrees && app.data}
   <ActionMenu>
     {#snippet children(open)}
-      <NavStrip label="Worktrees">
+      <NavStrip label="Worktrees" count={worktrees.length} empty="No worktrees">
         {#each worktrees as w (w.path)}
           <!-- The card shown on hover: what this worktree is, how old and how dirty -->
           {#snippet details()}
             {@const s = w.status}
             {@const stale = !!w.headDate && Date.now() / 1000 - w.headDate > STALE}
+            {@const d = app.worktreeDetails[w.path]}
             <div class="flex items-center gap-1.5">
               <FolderGit2 class="size-3.5 shrink-0" />
               <span class="font-semibold">{folder(w.path)}</span>
@@ -56,10 +58,53 @@
                   <span class="text-destructive">Folder missing: right-click to prune</span>
                 {:else if s?.changes}
                   <span class="text-dirty">{plural(s.changes, 'uncommitted change')}</span>
+                  <span class="block text-muted-foreground">Click the chip to see them</span>
                 {:else}
                   Clean
                 {/if}
               </dd>
+              {#if !w.prunable}
+                <dt class="text-muted-foreground">vs {app.data?.compare?.base ?? 'base'}</dt>
+                <dd>
+                  {#if !d}
+                    <span class="flex items-center gap-1 text-muted-foreground">
+                      <LoaderCircle class="size-3 animate-spin" /> comparing…
+                    </span>
+                  {:else if d.compare}
+                    {@const c = d.compare}
+                    {[
+                      c.ahead && `↑ ${plural(c.ahead, 'commit')} ahead`,
+                      c.behind && `↓ ${c.behind} behind`,
+                      c.same && `≡ ${c.same} copies`
+                    ]
+                      .filter(Boolean)
+                      .join(' · ') || 'Same as the base'}
+                    {#if c.mergeBaseDate}
+                      <span class="block text-muted-foreground">
+                        forked {ago(c.mergeBaseDate)}
+                      </span>
+                    {/if}
+                  {:else}
+                    <span class="text-muted-foreground">No base to compare with</span>
+                  {/if}
+                </dd>
+                {#if d?.compare?.rewritten}
+                  {@const c = d.compare}
+                  <dd
+                    class="col-span-2 rounded-sm border border-dirty/40 bg-dirty/10 px-1.5 py-1 text-dirty"
+                  >
+                    <span class="flex items-center gap-1 font-semibold">
+                      <TriangleAlert class="size-3.5" /> Rewritten history
+                    </span>
+                    {c.same} of its commits are copies of commits on {c.base}, and the two histories {c.mergeBaseDate
+                      ? `only meet ${ago(c.mergeBaseDate)}`
+                      : 'never meet'}: one side was rewritten (filter-repo, a forced rebase). The
+                    ahead and behind counts are mostly noise: rather than merging, start a fresh
+                    branch from {c.base}
+                    and bring the changes over.
+                  </dd>
+                {/if}
+              {/if}
               {#if s}
                 <dt class="text-muted-foreground">Upstream</dt>
                 <dd>
@@ -82,23 +127,31 @@
               <dd class="font-mono text-[11px] text-muted-foreground">{w.path}</dd>
             </dl>
             <p class="border-t pt-1.5 text-[11px] text-muted-foreground">
-              Click: show its commit · Double-click: open in a new window · Right-click: more
+              Click: its uncommitted changes · Double-click: open in a new window · Right-click:
+              more
             </p>
           {/snippet}
           <Tip content={details}>
             {#snippet children(trigger)}
               <button
-                {...trigger}
+                {...mergeProps(trigger, {
+                  // The card's comparison and file list load as soon as the pointer arrives
+                  onpointerenter: () => !w.prunable && app.loadWorktreeDetails(w.path),
+                  onfocus: () => !w.prunable && app.loadWorktreeDetails(w.path),
+                  onclick: () => app.openWorktree(w),
+                  ondblclick: () => !w.current && !w.prunable && host.openFolder(w.path),
+                  oncontextmenu: (e: MouseEvent) => open(e, worktreeItems(w))
+                })}
                 class={cn(
                   'flex h-6 max-w-80 shrink-0 items-center gap-1.5 rounded-sm border px-2 hover:bg-accent data-menu-open:bg-accent',
-                  w.current && 'border-ring'
+                  w.current && 'border-ring',
+                  app.worktreeDetails[w.path]?.compare?.rewritten && 'border-dirty'
                 )}
-                onclick={() => app.reveal(w.head)}
-                ondblclick={() => !w.current && !w.prunable && host.openFolder(w.path)}
-                oncontextmenu={(e) => open(e, worktreeItems(w))}
               >
                 {#if app.isRunning(w.path, w.branch, w.prunable ? 'pruneWorktrees' : null)}
                   <LoaderCircle class="size-3.5 shrink-0 animate-spin" />
+                {:else if app.worktreeDetails[w.path]?.compare?.rewritten}
+                  <TriangleAlert class="size-3.5 shrink-0 text-dirty" />
                 {:else if w.prunable}
                   <TriangleAlert class="size-3.5 shrink-0 text-destructive" />
                 {:else}
@@ -124,10 +177,12 @@
             icon={Plus}
             hint={{
               title: 'New worktree',
-              body: 'Asks for a branch name (empty for a detached HEAD) and checks HEAD out in a new folder next to this repository, then offers to open it.',
-              command: 'git worktree add -b <branch> ../<repo>-<branch> HEAD'
+              body: `Pick a free local branch or a remote one to check out in a new folder, or start a new branch from ${app.data?.compare?.base ?? 'the default branch'} (fetched first) or from any other branch. The folder goes next to this repository; you can open it right after.`,
+              command: 'git worktree add ../<repo>-<branch> <branch>'
             }}
-            onclick={() => app.repo && host.run(app.repo, { type: 'addWorktree', target: 'HEAD' })}
+            onclick={() =>
+              app.repo &&
+              host.run(app.repo, { type: 'newWorktree', base: app.data?.compare?.base })}
           />
         {/snippet}
       </NavStrip>

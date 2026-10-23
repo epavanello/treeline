@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.3.0
+
+- New worktree (+ in the Worktrees row and the sidebar) is a searchable picker: a free local branch, a
+  remote branch, or a new branch from the compare base (fetched first) or from any other branch
+- New tag (+ in the Tags row, or Add Tag… on a commit) suggests the next patch, minor and major version,
+  or takes any name, then offers to push it
+- Commits already on the base under another hash (after a rebase, GitHub's "Rebase and merge" or a
+  cherry-pick) no longer count as ahead: the compare bar shows them as "≡ N already in <base>" and the
+  graph dims them, so a merged branch reads as merged
+- The ahead, behind and "already in" counters are filters: click one to see only those commits (with the
+  fork point), combine them, click again to see everything. They replace the "Only ↑↓" button
+- A rewritten history (filter-repo, a forced rebase) is flagged: most of a branch's commits are copies of
+  the base's, so ahead/behind are noise. A warning in the compare bar and on the worktree chip and card
+- The worktree card compares it with the base (ahead, behind, copies, when it forked); click a worktree to
+  see its uncommitted changes in the details panel and open their diffs without opening the worktree
+- Changed files can be shown as a folder tree (toggle in the details header): folders collapse, and a
+  chain of single folders shares one row
+- The Branches dropdown lists local and remote branches with their age and where they stand against the
+  compare base (↑ ahead, ↓ behind); hover a branch for its card, right-click it for its actions, such as
+  deleting a remote branch you no longer need
+- Commit list columns can be resized (drag an edge, double-click to reset) and Date, Author and Commit
+  can be hidden from the View menu; both are remembered
+- The Worktrees, Branches and Tags rows line up, with compact titles, a small count of their items and
+  their + next to the title; they stay visible (if turned on) even when empty
+- A branch and its upstream on the same commit share one badge (`main ☁ origin`); right-click the ☁ part
+  for the remote branch's actions
+- Tooltips stay hidden while a context menu is open
+
 ## 0.2.0
 
 - Tooltips on every button and menu action: what it does, what to watch out for, and the git command

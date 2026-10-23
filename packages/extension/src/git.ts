@@ -14,16 +14,23 @@ import {
   type GraphQuery,
   type Ref,
   type RefSummary,
+  type Side,
+  type WorktreeDetails,
   type Worktree,
   type WorktreeStatus
 } from '@treeline/shared';
 
 const F = '\x1f'; // field separator
+/** How many commits copied onto the base it takes to call a history rewritten (see getCompare). */
+const REWRITTEN = 5;
 const R = '\x1e'; // record separator
 
 export class GitError extends Error {}
 
 export class Git {
+  /** Last worktree comparisons, by worktree path (see worktreeDetails). */
+  private readonly worktreeCompares = new Map<string, { key: string; compare: Compare | null }>();
+
   constructor(private readonly gitPath = 'git') {}
 
   exec(repo: string, args: string[]): Promise<string> {
@@ -79,7 +86,14 @@ export class Git {
     }
 
     const compare = head ? await this.getCompare(q.repo, q.base, refs) : null;
-    const focus = q.focus && !!compare;
+    if (compare) {
+      const vsBase = await this.aheadBehind(q.repo, compare.base);
+      for (const r of refs) {
+        const full = `refs/${r.ref.kind === 'head' ? 'heads' : 'remotes'}/${r.ref.name}`;
+        if (r.ref.kind !== 'tag') r.vsBase = vsBase.get(full);
+      }
+    }
+    const focus = compare && q.focus.length ? q.focus : null;
     const revs = focus
       ? ['--boundary', `HEAD...${compare!.base}`]
       : q.branches.length
@@ -113,6 +127,11 @@ export class Git {
     const hasMore = commits.length > q.maxCommits;
     if (hasMore) commits.pop();
     for (const c of commits) c.side = compare?.sides.get(c.hash);
+    // Focus: only the chosen sides of the divergence, and the fork point they share
+    if (focus)
+      commits = commits.filter(
+        (c) => (c.side && focus.includes(c.side)) || c.hash === compare!.mergeBase
+      );
 
     // Annotate refs
     const byHash = new Map(commits.map((c) => [c.hash, c]));
@@ -157,14 +176,60 @@ export class Git {
       worktrees,
       heads: refs.filter((r) => r.ref.kind === 'head'),
       tags: refs.filter((r) => r.ref.kind === 'tag'),
+      remoteHeads: refs.filter((r) => r.ref.kind === 'remote'),
       compare: compare && {
         base: compare.base,
         ahead: compare.ahead,
         behind: compare.behind,
-        mergeBase: compare.mergeBase
+        same: compare.same,
+        mergeBase: compare.mergeBase,
+        mergeBaseDate: compare.mergeBaseDate,
+        rewritten: compare.rewritten
       },
       hasMore
     };
+  }
+
+  /** Ahead/behind `base` for every branch, by full ref name, in one call (empty before git 2.41). */
+  private async aheadBehind(repo: string, base: string) {
+    const out = await this.try(
+      this.exec(repo, [
+        'for-each-ref',
+        `--format=%(refname)${F}%(ahead-behind:${base})`,
+        'refs/heads',
+        'refs/remotes'
+      ]),
+      ''
+    );
+    return new Map(
+      lines(out).map((l) => {
+        const [ref, counts] = l.split(F);
+        const [ahead, behind] = counts.split(' ').map(Number);
+        return [ref, { ahead, behind }] as const;
+      })
+    );
+  }
+
+  /** Branches (local and remote) and tags, most recent first. */
+  async listRefs(repo: string): Promise<RefSummary[]> {
+    return this.getRefs(repo, lines(await this.try(this.exec(repo, ['remote']), '')));
+  }
+
+  /** The branch work usually starts from: origin/HEAD, then origin/main, origin/master, main, master. */
+  async defaultBase(repo: string): Promise<string | null> {
+    return this.resolveBase(repo, await this.listRefs(repo));
+  }
+
+  private async resolveBase(repo: string, refs: { ref: Ref }[]) {
+    const names = new Set(refs.map((r) => r.ref.name));
+    return (
+      (await this.try(
+        this.exec(repo, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']),
+        ''
+      ).then((s) => s.trim())) ||
+      ['origin/main', 'origin/master', 'main', 'master'].find((n) => names.has(n)) ||
+      null
+    );
   }
 
   /** HEAD vs `base` (or the default base), with the side of every diverging commit. */
@@ -172,29 +237,71 @@ export class Git {
     repo: string,
     base: string | null,
     refs: { ref: Ref }[]
-  ): Promise<(Compare & { sides: Map<string, 'ahead' | 'behind'> }) | null> {
-    const names = new Set(refs.map((r) => r.ref.name));
-    base ??=
-      (await this.try(
-        this.exec(repo, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']),
-        ''
-      ).then((s) => s.trim())) ||
-      ['origin/main', 'origin/master', 'main', 'master'].find((n) => names.has(n)) ||
-      null;
+  ): Promise<(Compare & { sides: Map<string, Side> }) | null> {
+    base ??= await this.resolveBase(repo, refs);
     if (!base) return null;
-    const [list, mergeBase] = await Promise.all([
-      this.try(this.exec(repo, ['rev-list', '--left-right', `HEAD...${base}`, '--']), null),
+    // --cherry-mark tells the commits whose changes are on both sides (rebased, cherry-picked) with '='
+    const side = (only: string) =>
+      this.try(this.exec(repo, ['rev-list', '--cherry-mark', only, `HEAD...${base}`, '--']), null);
+    const [mine, theirs, mergeBase] = await Promise.all([
+      side('--left-only'),
+      side('--right-only'),
       this.try(
         this.exec(repo, ['merge-base', 'HEAD', base]).then((s) => s.trim() || null),
         null
       )
     ]);
-    if (list === null) return null; // the base doesn't exist (any more)
-    const sides = new Map(
-      lines(list).map((l) => [l.slice(1), l[0] === '<' ? 'ahead' : 'behind'] as const)
-    );
-    const ahead = [...sides.values()].filter((s) => s === 'ahead').length;
-    return { base, ahead, behind: sides.size - ahead, mergeBase, sides };
+    if (mine === null || theirs === null) return null; // the base doesn't exist (any more)
+    const sides = new Map<string, Side>();
+    const count = { ahead: 0, behind: 0, same: 0 };
+    for (const [list, unique] of [
+      [mine, 'ahead'],
+      [theirs, 'behind']
+    ] as const)
+      for (const l of lines(list)) {
+        const s = l[0] === '=' ? 'same' : unique;
+        sides.set(l.slice(1), s);
+        if (s !== 'same' || unique === 'ahead') count[s]++;
+      }
+    const mergeBaseDate = mergeBase
+      ? await this.try(
+          this.exec(repo, ['show', '-s', '--format=%ct', mergeBase]).then(Number),
+          null
+        )
+      : null;
+    // Copies dominate HEAD's side: not a rebase-and-merge of a few commits but a rewritten history
+    const rewritten = count.same >= REWRITTEN && count.same > count.ahead;
+    return { base, ...count, mergeBase, mergeBaseDate, rewritten, sides };
+  }
+
+  /** A worktree (any folder of this repository) compared with `base`, and what it hasn't committed. */
+  async worktreeDetails(path: string, base: string | null): Promise<WorktreeDetails> {
+    base ??= await this.defaultBase(path);
+    const [head, baseHash, files] = await Promise.all([
+      this.try(
+        this.exec(path, ['rev-parse', 'HEAD']).then((s) => s.trim()),
+        ''
+      ),
+      base
+        ? this.try(
+            this.exec(path, ['rev-parse', base]).then((s) => s.trim()),
+            ''
+          )
+        : '',
+      this.try(this.compare(path, 'HEAD', UNCOMMITTED), [] as FileChange[])
+    ]);
+    // The comparison can take seconds on diverged histories: reuse it until either side moves
+    const key = `${head} ${base} ${baseHash}`;
+    const cached = this.worktreeCompares.get(path);
+    if (cached?.key === key) return { compare: cached.compare, files };
+    const full = base ? await this.getCompare(path, base, []) : null;
+    let compare: Compare | null = null;
+    if (full) {
+      const { sides: _, ...withoutSides } = full;
+      compare = withoutSides;
+    }
+    this.worktreeCompares.set(path, { key, compare });
+    return { compare, files };
   }
 
   async getWorktrees(repo: string): Promise<Worktree[]> {
