@@ -1,25 +1,61 @@
-# Push a tag matching the version in packages/extension/package.json (e.g. v0.1.1) to publish it to
-# Open VSX and attach the .vsix to a GitHub release.
+# Every push to main whose packages/extension/package.json version has no tag yet is released:
+# tag v<version> + GitHub release with the .vsix and that version's CHANGELOG section, then the stores.
+# Pushes that don't change the version publish nothing (and warn if the extension changed anyway).
+#
 # Open VSX: trusted publishing (OIDC, no secret), registered for this workflow at
-# open-vsx.org/user-settings/trusted-publishers. An OVSX_PAT secret, if present, takes precedence.
+# open-vsx.org/user-settings/trusted-publishers; enabled by the repository variable
+# OPENVSX_TRUSTED_PUBLISHING=true. An OVSX_PAT secret, if present, is used instead.
 # VS Code Marketplace: only with a VSCE_PAT secret (an Azure DevOps token, which now needs an Azure
-# subscription); otherwise upload the release's .vsix at marketplace.visualstudio.com/manage.
+# subscription); otherwise the run summary says to upload the .vsix at marketplace.visualstudio.com/manage.
 name: Release
 
 on:
   push:
-    # v0.1.0 was published by hand, before trusted publishing could be registered
-    tags: ['v*', '!v0.1.0']
+    branches: [main]
+  workflow_dispatch:
+
+# One release at a time, never cancelled halfway through publishing
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.version.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, to compare with the last release
+      - id: version
+        name: Is this version already released?
+        run: |
+          v=$(node -p "require('./packages/extension/package.json').version")
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$v" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+            echo "v$v is already released: nothing to publish." >> "$GITHUB_STEP_SUMMARY"
+            if ! git diff --quiet "v$v" HEAD -- packages/extension packages/webview packages/shared; then
+              echo "::warning::The extension changed since v$v but its version didn't: bump packages/extension/package.json and add a CHANGELOG section to release it."
+            fi
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish:
+    needs: check
+    if: needs.check.outputs.new == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write # OIDC token for Open VSX trusted publishing
     env:
+      TAG: v${{ needs.check.outputs.version }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -28,20 +64,29 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Tag matches the extension version
-        run: test "v$(node -p "require('./packages/extension/package.json').version")" = "$GITHUB_REF_NAME"
+      - name: This version has a CHANGELOG section
+        run: |
+          awk -v v="${TAG#v}" '/^## /{p=($2==v); next} p' packages/extension/CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || { echo "::error::Add a '## ${TAG#v}' section to packages/extension/CHANGELOG.md"; exit 1; }
       - run: pnpm test
       - run: pnpm package
+      - name: GitHub release (creates the tag)
+        run: gh release create "$TAG" packages/extension/treeline.vsix --target "$GITHUB_SHA" --title "$TAG" --notes-file notes.md
       - name: Publish to the VS Code Marketplace
-        if: env.VSCE_PAT != ''
-        run: pnpm --filter treeline exec vsce publish --no-dependencies --skip-duplicate --packagePath treeline.vsix
-      - name: Publish to Open VSX
-        run: >-
-          pnpm --filter treeline exec ovsx publish treeline.vsix --skip-duplicate
-          ${{ secrets.OVSX_PAT == '' && '--trusted-publishing' || '' }}
-      - name: GitHub release with the .vsix and this version's changelog
         run: |
-          awk -v v="${GITHUB_REF_NAME#v}" '/^## /{p=($2==v); next} p' packages/extension/CHANGELOG.md > notes.md
-          gh release create "$GITHUB_REF_NAME" packages/extension/treeline.vsix --title "$GITHUB_REF_NAME" --notes-file notes.md
-        env:
-          GH_TOKEN: ${{ github.token }}
+          if [ -n "$VSCE_PAT" ]; then
+            pnpm --filter treeline exec vsce publish --no-dependencies --skip-duplicate --packagePath treeline.vsix
+          else
+            echo "::notice::VS Code Marketplace: upload the $TAG .vsix from the GitHub release at https://marketplace.visualstudio.com/manage/publishers/epavanello (… → Update)."
+            echo "**VS Code Marketplace:** upload \`treeline.vsix\` from the [$TAG release](https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG) at https://marketplace.visualstudio.com/manage/publishers/epavanello (… → Update)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish to Open VSX
+        run: |
+          if [ -n "$OVSX_PAT" ]; then
+            pnpm --filter treeline exec ovsx publish treeline.vsix --skip-duplicate
+          elif [ "${{ vars.OPENVSX_TRUSTED_PUBLISHING }}" = "true" ]; then
+            pnpm --filter treeline exec ovsx publish treeline.vsix --skip-duplicate --trusted-publishing
+          else
+            echo "::notice::Open VSX skipped: trusted publishing isn't enabled yet (repository variable OPENVSX_TRUSTED_PUBLISHING)."
+            echo "**Open VSX:** skipped until trusted publishing is enabled." >> "$GITHUB_STEP_SUMMARY"
+          fi

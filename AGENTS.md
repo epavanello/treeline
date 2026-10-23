@@ -13,6 +13,12 @@ the git CLI under the hood. Feature reference: [mhutchie/vscode-git-graph](https
   shadcn-svelte components over custom code. `packages/webview/src/lib/components/ui/` is vendored shadcn:
   treat it as external, edit only to theme or fix integration.
 - Svelte 5 runes only (`$state`, `$derived`, `$effect`, `$props`). No stores, no React-style patterns.
+- **Every user-facing change ships as a release.** A fix, feature or UI change pushed to `main` must, in the
+  same push, bump `version` in `packages/extension/package.json` (semver: fix → patch, feature → minor;
+  breaking → minor while we're on 0.x) and add a `## <version>` section at the top of
+  `packages/extension/CHANGELOG.md` with one user-facing bullet per change. The Release workflow publishes
+  it automatically (see "Releases" below). Changes that don't touch the extension (docs, CI, tests only) need
+  no bump. Never push tags by hand: the workflow creates them.
 
 ## Goal
 
@@ -49,13 +55,22 @@ Later ideas: merge local branch + its upstream into one badge (like Git Graph), 
 server-side (`--grep`), a WebviewPanelSerializer so the panel survives window reloads, settings
 (page size, date format, graph style), multi-select actions.
 
-Releases go to the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and Windsurf install from
-Open VSX) as `epavanello.treeline`: bump `version` in `packages/extension/package.json`, add a section to
-`packages/extension/CHANGELOG.md`, push a `v<version>` tag. `.github/workflows/release.yml` publishes to
-Open VSX with trusted publishing (OIDC, no secret) and creates the GitHub release with the `.vsix`. The
-Marketplace needs an Azure DevOps token, which now requires an Azure subscription: unless a `VSCE_PAT` secret
-exists, upload that `.vsix` by hand at marketplace.visualstudio.com/manage/publishers/epavanello (Update).
-0.1.0 was uploaded by hand to both stores; the Open VSX namespace claim is EclipseFdn/open-vsx.org#14627.
+### Releases
+
+Published as `epavanello.treeline` on the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and
+Windsurf install from Open VSX). `.github/workflows/release.yml` runs on every push to `main`: when the
+`package.json` version has no `v<version>` tag yet, it runs the tests, packages the `.vsix`, creates the tag
+and a GitHub release (notes = that version's CHANGELOG section, required), then publishes:
+
+- **Open VSX**: trusted publishing (GitHub OIDC, no secret), active once the repository variable
+  `OPENVSX_TRUSTED_PUBLISHING` is `true` (set after the namespace claim EclipseFdn/open-vsx.org#14627 is
+  approved and the trusted publisher is registered). Until then the step is skipped with a notice.
+- **VS Code Marketplace**: automatic only with a `VSCE_PAT` secret (an Azure DevOps token, which now requires
+  an Azure subscription). Otherwise the run summary links the `.vsix` to upload by hand at
+  marketplace.visualstudio.com/manage/publishers/epavanello (… → Update).
+
+A push that changes the extension without bumping the version publishes nothing and gets a warning.
+0.1.0 was uploaded by hand to both stores.
 
 ## Layout
 
