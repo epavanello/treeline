@@ -1,0 +1,103 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/* Scan src/ even when Vite's root is preview/ (browser preview mode). */
+@source '.';
+
+/* VS Code puts .vscode-dark / .vscode-high-contrast on <body>. */
+@custom-variant dark (&:is(.vscode-dark *, .vscode-high-contrast *));
+
+/*
+ * shadcn tokens mapped onto VS Code theme variables: every component follows
+ * the user's colour theme with no light/dark palettes of our own.
+ */
+:root {
+  --radius: 0.25rem;
+  --background: var(--vscode-editor-background);
+  --foreground: var(--vscode-foreground);
+  --card: var(--vscode-editorWidget-background);
+  --card-foreground: var(--vscode-foreground);
+  --popover: var(--vscode-menu-background, var(--vscode-editorWidget-background));
+  --popover-foreground: var(--vscode-menu-foreground, var(--vscode-foreground));
+  --primary: var(--vscode-button-background);
+  --primary-foreground: var(--vscode-button-foreground);
+  --secondary: var(--vscode-button-secondaryBackground);
+  --secondary-foreground: var(--vscode-button-secondaryForeground);
+  --muted: var(--vscode-editorWidget-background);
+  --muted-foreground: var(--vscode-descriptionForeground);
+  --accent: var(--vscode-list-hoverBackground);
+  --accent-foreground: var(--vscode-list-hoverForeground, var(--vscode-foreground));
+  --destructive: var(--vscode-errorForeground);
+  --border: var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+  --input: var(--vscode-input-border, var(--vscode-panel-border, transparent));
+  --ring: var(--vscode-focusBorder);
+  --selection: var(--vscode-list-activeSelectionBackground);
+  --selection-foreground: var(--vscode-list-activeSelectionForeground);
+  --input-background: var(--vscode-input-background);
+  --badge: var(--vscode-badge-background);
+  --badge-foreground: var(--vscode-badge-foreground);
+  /* Commits only on HEAD (ahead of the compare base) / only on the base (behind) */
+  --ahead: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+  --behind: var(--vscode-charts-blue, #3794ff);
+  --dirty: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+}
+
+@theme inline {
+  --font-sans: var(--vscode-font-family);
+  --font-mono: var(--vscode-editor-font-family);
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-selection: var(--selection);
+  --color-selection-foreground: var(--selection-foreground);
+  --color-input-background: var(--input-background);
+  --color-badge: var(--badge);
+  --color-badge-foreground: var(--badge-foreground);
+  --color-ahead: var(--ahead);
+  --color-behind: var(--behind);
+  --color-dirty: var(--dirty);
+}
+
+/*
+ * VS Code injects an unlayered `:focus { outline: 1px solid var(--vscode-focusBorder) }` into
+ * webviews, which beats every Tailwind layer. Keep it for keyboard focus only, and never on text
+ * inputs: those show focus through their own border.
+ */
+:focus:not(:focus-visible),
+input:focus {
+  outline: none;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #app {
+    @apply h-full;
+  }
+  body {
+    @apply bg-background text-foreground overflow-hidden p-0;
+    font-size: var(--vscode-font-size);
+  }
+}

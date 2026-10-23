@@ -1,0 +1,470 @@
+/**
+ * Thin, vscode-free layer over the git CLI. Everything here is unit-testable
+ * against a real temporary repository.
+ */
+import { execFile } from 'node:child_process';
+import {
+  UNCOMMITTED,
+  type Commit,
+  type CommitDetails,
+  type Compare,
+  type FileChange,
+  type FileStatus,
+  type GraphData,
+  type GraphQuery,
+  type Ref,
+  type Worktree,
+  type WorktreeStatus
+} from '@treeline/shared';
+
+const F = '\x1f'; // field separator
+const R = '\x1e'; // record separator
+
+export class GitError extends Error {}
+
+export class Git {
+  constructor(private readonly gitPath = 'git') {}
+
+  exec(repo: string, args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      execFile(
+        this.gitPath,
+        ['-c', 'core.quotepath=false', '-c', 'log.showSignature=false', ...args],
+        {
+          cwd: repo,
+          maxBuffer: 256 * 1024 * 1024,
+          env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        },
+        (err, stdout, stderr) => {
+          if (err) reject(new GitError((stderr || err.message).trim()));
+          else resolve(stdout);
+        }
+      );
+    });
+  }
+
+  /** Like `exec`, but resolves to `fallback` instead of rejecting. */
+  private try<T>(promise: Promise<T>, fallback: T): Promise<T> {
+    return promise.catch(() => fallback);
+  }
+
+  async toplevel(dir: string): Promise<string | null> {
+    return this.try(
+      this.exec(dir, ['rev-parse', '--show-toplevel']).then((s) => s.trim()),
+      null
+    );
+  }
+
+  async getGraph(q: GraphQuery): Promise<GraphData> {
+    const remotes = lines(await this.try(this.exec(q.repo, ['remote']), ''));
+    const [refs, head, currentBranch, stashes, worktrees] = await Promise.all([
+      this.getRefs(q.repo, remotes),
+      this.try(
+        this.exec(q.repo, ['rev-parse', '--verify', '-q', 'HEAD']).then((s) => s.trim() || null),
+        null
+      ),
+      this.try(
+        this.exec(q.repo, ['symbolic-ref', '-q', '--short', 'HEAD']).then((s) => s.trim() || null),
+        null
+      ),
+      this.getStashes(q.repo),
+      this.getWorktrees(q.repo)
+    ]);
+
+    // Mark branches that are checked out in another worktree
+    for (const { ref } of refs) {
+      const wt = worktrees.find((w) => !w.current && w.branch === ref.name);
+      if (ref.kind === 'head' && wt) ref.worktree = wt.path;
+    }
+
+    const compare = head ? await this.getCompare(q.repo, q.base, refs) : null;
+    const focus = q.focus && !!compare;
+    const revs = focus
+      ? ['--boundary', `HEAD...${compare!.base}`]
+      : q.branches.length
+        ? q.branches
+        : [
+            '--branches',
+            '--tags',
+            ...(q.showRemotes ? ['--remotes'] : []),
+            ...(head ? ['HEAD'] : [])
+          ];
+    const stashBases = [...new Set(stashes.map((s) => s.stashBase!))];
+    const log =
+      head || refs.length
+        ? await this.exec(q.repo, [
+            'log',
+            `--max-count=${q.maxCommits + 1}`,
+            '--date-order',
+            `--format=%H${F}%P${F}%aN${F}%aE${F}%at${F}%s${R}`,
+            // Repeated --author is an OR; anchor on "Name <" so names match exactly
+            ...q.authors.map((a) => `--author=^${a.replace(/[\\.[\]*^$]/g, '\\$&')} <`),
+            ...revs,
+            ...(q.branches.length || focus ? [] : stashBases),
+            '--'
+          ])
+        : '';
+
+    let commits: Commit[] = records(log).map((r) => {
+      const [hash, parents, author, email, date, subject] = r.split(F);
+      return { hash, parents: words(parents), author, email, date: +date, subject, refs: [] };
+    });
+    const hasMore = commits.length > q.maxCommits;
+    if (hasMore) commits.pop();
+    for (const c of commits) c.side = compare?.sides.get(c.hash);
+
+    // Annotate refs
+    const byHash = new Map(commits.map((c) => [c.hash, c]));
+    for (const { hash, ref } of refs) {
+      if (ref.kind === 'remote' && !q.showRemotes) continue;
+      byHash.get(hash)?.refs.push(ref);
+    }
+
+    // Splice stashes in right above their base commit
+    for (const stash of stashes) {
+      const at = commits.findIndex((c) => c.hash === stash.stashBase);
+      if (at >= 0) commits.splice(at, 0, stash);
+    }
+
+    // Uncommitted changes row, always on top
+    if (head && byHash.has(head)) {
+      const changes = lines(
+        await this.try(this.exec(q.repo, ['status', '--porcelain', '--untracked-files=all']), '')
+      );
+      if (changes.length) {
+        commits.unshift({
+          hash: UNCOMMITTED,
+          parents: [head],
+          author: '*',
+          email: '',
+          date: Math.round(Date.now() / 1000),
+          subject: `Uncommitted Changes (${changes.length})`,
+          refs: []
+        });
+      }
+    }
+
+    const branches = refs
+      .filter((r) => r.ref.kind === 'head' || (q.showRemotes && r.ref.kind === 'remote'))
+      .map((r) => r.ref.name);
+    return {
+      commits,
+      head,
+      currentBranch,
+      branches: [...new Set(branches)],
+      remotes,
+      worktrees,
+      compare: compare && {
+        base: compare.base,
+        ahead: compare.ahead,
+        behind: compare.behind,
+        mergeBase: compare.mergeBase
+      },
+      hasMore
+    };
+  }
+
+  /** HEAD vs `base` (or the default base), with the side of every diverging commit. */
+  private async getCompare(
+    repo: string,
+    base: string | null,
+    refs: { ref: Ref }[]
+  ): Promise<(Compare & { sides: Map<string, 'ahead' | 'behind'> }) | null> {
+    const names = new Set(refs.map((r) => r.ref.name));
+    base ??=
+      (await this.try(
+        this.exec(repo, ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD']),
+        ''
+      ).then((s) => s.trim())) ||
+      ['origin/main', 'origin/master', 'main', 'master'].find((n) => names.has(n)) ||
+      null;
+    if (!base) return null;
+    const [list, mergeBase] = await Promise.all([
+      this.try(this.exec(repo, ['rev-list', '--left-right', `HEAD...${base}`, '--']), null),
+      this.try(
+        this.exec(repo, ['merge-base', 'HEAD', base]).then((s) => s.trim() || null),
+        null
+      )
+    ]);
+    if (list === null) return null; // the base doesn't exist (any more)
+    const sides = new Map(
+      lines(list).map((l) => [l.slice(1), l[0] === '<' ? 'ahead' : 'behind'] as const)
+    );
+    const ahead = [...sides.values()].filter((s) => s === 'ahead').length;
+    return { base, ahead, behind: sides.size - ahead, mergeBase, sides };
+  }
+
+  async getWorktrees(repo: string): Promise<Worktree[]> {
+    const [out, top] = await Promise.all([
+      this.try(this.exec(repo, ['worktree', 'list', '--porcelain']), ''),
+      this.toplevel(repo)
+    ]);
+    // Records are blank-line separated; each line is `key[ value]`.
+    const worktrees = out
+      .split(/\r?\n\r?\n/)
+      .map(
+        (record) =>
+          new Map(lines(record).map((l) => [l.split(' ')[0], l.slice(l.indexOf(' ') + 1)]))
+      )
+      .filter((f) => f.has('worktree') && !f.has('bare'))
+      .map((f, i): Worktree => ({
+        path: f.get('worktree')!,
+        branch: f.get('branch')?.replace(/^refs\/heads\//, '') ?? null,
+        head: f.get('HEAD') ?? '',
+        main: i === 0,
+        current: f.get('worktree') === top,
+        locked: f.has('locked'),
+        prunable: f.has('prunable'),
+        status: null
+      }));
+    await Promise.all(
+      worktrees
+        .filter((w) => !w.prunable)
+        .map(async (w) => (w.status = await this.try(this.worktreeStatus(w.path), null)))
+    );
+    return worktrees;
+  }
+
+  private async worktreeStatus(path: string): Promise<WorktreeStatus> {
+    const status: WorktreeStatus = { changes: 0, ahead: 0, behind: 0, upstream: null };
+    for (const l of lines(await this.exec(path, ['status', '--porcelain=v2', '--branch']))) {
+      if (l.startsWith('# branch.upstream ')) status.upstream = l.slice(18);
+      else if (l.startsWith('# branch.ab '))
+        [status.ahead, status.behind] = l
+          .slice(12)
+          .split(' ')
+          .map((n) => Math.abs(+n));
+      else if (!l.startsWith('#')) status.changes++;
+    }
+    return status;
+  }
+
+  private async getRefs(repo: string, remotes: string[]): Promise<{ hash: string; ref: Ref }[]> {
+    const out = await this.try(
+      this.exec(repo, [
+        'for-each-ref',
+        `--format=%(objectname)${F}%(*objectname)${F}%(refname)${F}%(refname:short)`,
+        'refs/heads',
+        'refs/remotes',
+        'refs/tags'
+      ]),
+      ''
+    );
+    return lines(out).flatMap((line) => {
+      const [obj, deref, full, name] = line.split(F);
+      const hash = deref || obj;
+      if (full.startsWith('refs/heads/')) return [{ hash, ref: { kind: 'head', name } as Ref }];
+      if (full.startsWith('refs/tags/'))
+        return [{ hash, ref: { kind: 'tag', name, annotated: !!deref } as Ref }];
+      if (full.endsWith('/HEAD')) return [];
+      const remote = remotes.find((r) => full.startsWith(`refs/remotes/${r}/`));
+      return [{ hash, ref: { kind: 'remote', name: full.slice(13), remote } as Ref }];
+    });
+  }
+
+  private async getStashes(repo: string): Promise<Commit[]> {
+    const out = await this.try(
+      this.exec(repo, [
+        'reflog',
+        `--format=%H${F}%P${F}%gd${F}%aN${F}%aE${F}%at${F}%s${R}`,
+        'refs/stash',
+        '--'
+      ]),
+      ''
+    );
+    return records(out).map((r) => {
+      const [hash, parents, selector, author, email, date, subject] = r.split(F);
+      const base = words(parents)[0];
+      return {
+        hash,
+        parents: [base],
+        author,
+        email,
+        date: +date,
+        subject,
+        stashBase: base,
+        refs: [{ kind: 'stash', name: selector }]
+      };
+    });
+  }
+
+  async getDetails(repo: string, commit: Commit): Promise<CommitDetails> {
+    if (commit.hash === UNCOMMITTED) {
+      return {
+        hash: UNCOMMITTED,
+        parents: [],
+        author: '',
+        authorEmail: '',
+        authorDate: 0,
+        committer: '',
+        committerEmail: '',
+        committerDate: 0,
+        body: '',
+        files: await this.compare(repo, 'HEAD', UNCOMMITTED)
+      };
+    }
+    const out = await this.exec(repo, [
+      'show',
+      '--quiet',
+      `--format=%H${F}%P${F}%aN${F}%aE${F}%at${F}%cN${F}%cE${F}%ct${F}%B`,
+      commit.hash
+    ]);
+    const [
+      hash,
+      parents,
+      author,
+      authorEmail,
+      authorDate,
+      committer,
+      committerEmail,
+      committerDate,
+      ...body
+    ] = out.split(F);
+    const parentList = words(parents);
+
+    let files: FileChange[];
+    if (commit.stashBase) {
+      files = await this.diff(repo, commit.stashBase, hash);
+      const untracked = parentList[2];
+      if (untracked) {
+        const extra = await this.diff(repo, untracked, untracked);
+        files.push(...extra.map((f) => ({ ...f, status: 'U' as const })));
+      }
+    } else {
+      files = await this.diff(repo, parentList.length ? `${hash}^` : hash, hash);
+    }
+
+    return {
+      hash,
+      parents: parentList,
+      author,
+      authorEmail,
+      authorDate: +authorDate,
+      committer,
+      committerEmail,
+      committerDate: +committerDate,
+      body: body.join(F).trim(),
+      files
+    };
+  }
+
+  /** Files changed between two revisions; `to` may be `UNCOMMITTED` (working tree). */
+  async compare(repo: string, from: string, to: string): Promise<FileChange[]> {
+    if (to !== UNCOMMITTED) return this.diff(repo, from, to);
+    const [files, status] = await Promise.all([
+      this.diff(repo, from, ''),
+      this.exec(repo, ['status', '--porcelain', '-z', '--untracked-files=all'])
+    ]);
+    const tokens = status.split('\0');
+    for (const entry of tokens) {
+      if (entry.startsWith('?? ')) {
+        const path = entry.slice(3);
+        files.push({ status: 'U', oldPath: path, path, additions: null, deletions: null });
+      }
+    }
+    return files;
+  }
+
+  /** `from === to` means "the changes introduced by this root commit". `to === ''` = working tree. */
+  private async diff(repo: string, from: string, to: string): Promise<FileChange[]> {
+    const base =
+      from === to
+        ? ['diff-tree', '-r', '--root', '--find-renames', '-z', from]
+        : ['diff', '--find-renames', '-z', from, ...(to ? [to] : [])];
+    const [nameStatus, numstat] = await Promise.all([
+      this.exec(repo, [...base.slice(0, 1), '--name-status', ...base.slice(1)]),
+      this.exec(repo, [...base.slice(0, 1), '--numstat', ...base.slice(1)])
+    ]);
+    return mergeDiff(nameStatus, numstat, from === to ? from : null);
+  }
+
+  /** What a commit message is written from: the staged diff, or all changes if nothing is staged. */
+  async commitContext(repo: string) {
+    const [staged, recent] = await Promise.all([
+      this.exec(repo, ['diff', '--cached']),
+      this.try(this.exec(repo, ['log', '-15', '--format=%s']).then(lines), [] as string[])
+    ]);
+    let diff = staged;
+    if (!staged.trim()) {
+      const [tracked, untracked] = await Promise.all([
+        this.try(this.exec(repo, ['diff', 'HEAD']), ''),
+        this.exec(repo, ['ls-files', '--others', '--exclude-standard']).then(lines)
+      ]);
+      diff = tracked + (untracked.length ? `\nNew files:\n${untracked.join('\n')}\n` : '');
+    }
+    // Keep the prompt small; the start of a huge diff says enough
+    return { staged: !!staged.trim(), diff: diff.slice(0, 60_000), recent };
+  }
+
+  /** Whether `path` at `rev` is identical to the file in the working tree. */
+  sameAsWorkingTree(repo: string, rev: string, path: string): Promise<boolean> {
+    return this.exec(repo, ['diff', '--quiet', rev, '--', path]).then(
+      () => true,
+      () => false
+    );
+  }
+
+  showFile(repo: string, rev: string, path: string): Promise<string> {
+    return this.exec(repo, ['show', `${rev}:${path}`]);
+  }
+}
+
+/** Parse `--name-status -z` + `--numstat -z` output into one list. Exported for tests. */
+export function mergeDiff(
+  nameStatus: string,
+  numstat: string,
+  rootHash: string | null
+): FileChange[] {
+  const t = nameStatus.split('\0');
+  // diff-tree prints the commit hash as the first token
+  let i = rootHash && t[0] === rootHash ? 1 : 0;
+  const files: FileChange[] = [];
+  while (i < t.length && t[i]) {
+    const code = t[i][0] as FileStatus | 'C';
+    if (code === 'R' || code === 'C') {
+      files.push({
+        status: 'R',
+        oldPath: t[i + 1],
+        path: t[i + 2],
+        additions: null,
+        deletions: null
+      });
+      i += 3;
+    } else {
+      files.push({
+        status: code as FileStatus,
+        oldPath: t[i + 1],
+        path: t[i + 1],
+        additions: null,
+        deletions: null
+      });
+      i += 2;
+    }
+  }
+
+  const n = numstat.split('\0');
+  i = rootHash && n[0] === rootHash ? 1 : 0;
+  const counts = new Map<string, [number | null, number | null]>();
+  while (i < n.length && n[i]) {
+    const [add, del, path] = n[i].split('\t');
+    const parse = (s: string) => (s === '-' ? null : +s);
+    // Renames: path is empty and the next two tokens are old/new
+    if (path === '') {
+      counts.set(n[i + 2], [parse(add), parse(del)]);
+      i += 3;
+    } else {
+      counts.set(path, [parse(add), parse(del)]);
+      i += 1;
+    }
+  }
+  for (const f of files) [f.additions, f.deletions] = counts.get(f.path) ?? [null, null];
+  return files;
+}
+
+const lines = (s: string) => s.split(/\r?\n/).filter(Boolean);
+const words = (s: string) => s.split(' ').filter(Boolean);
+const records = (s: string) =>
+  s
+    .split(R)
+    .map((r) => r.replace(/^\r?\n/, ''))
+    .filter(Boolean);

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Treeline preview</title>
+    <!-- A subset of VS Code's Dark Modern theme variables -->
+    <style>
+      :root {
+        --vscode-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        --vscode-font-size: 13px;
+        --vscode-editor-font-family: Menlo, Monaco, monospace;
+        --vscode-foreground: #cccccc;
+        --vscode-descriptionForeground: #9d9d9d;
+        --vscode-editor-background: #1f1f1f;
+        --vscode-editorWidget-background: #202020;
+        --vscode-menu-background: #1f1f1f;
+        --vscode-menu-foreground: #cccccc;
+        --vscode-button-background: #0078d4;
+        --vscode-button-foreground: #ffffff;
+        --vscode-button-secondaryBackground: #313131;
+        --vscode-button-secondaryForeground: #cccccc;
+        --vscode-list-hoverBackground: #2a2d2e;
+        --vscode-list-activeSelectionBackground: #04395e;
+        --vscode-list-activeSelectionForeground: #ffffff;
+        --vscode-errorForeground: #f85149;
+        --vscode-panel-border: #2b2b2b;
+        --vscode-widget-border: #313131;
+        --vscode-input-background: #313131;
+        --vscode-input-border: #3c3c3c;
+        --vscode-focusBorder: #0078d4;
+        --vscode-badge-background: #616161;
+        --vscode-badge-foreground: #f8f8f8;
+        --vscode-charts-blue: #3794ff;
+        --vscode-gitDecoration-addedResourceForeground: #81b88b;
+        --vscode-gitDecoration-modifiedResourceForeground: #e2c08d;
+        --vscode-gitDecoration-deletedResourceForeground: #c74e39;
+        --vscode-gitDecoration-untrackedResourceForeground: #73c991;
+        --vscode-gitDecoration-renamedResourceForeground: #73c991;
+      }
+    </style>
+  </head>
+  <body class="vscode-dark">
+    <div id="app"></div>
+    <script type="module">
+      import './mock-host.ts';
+      import '../src/main.ts';
+    </script>
+  </body>
+</html>

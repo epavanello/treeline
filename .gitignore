@@ -1,0 +1,8 @@
+node_modules
+dist
+*.vsix
+.DS_Store
+.vscode-test
+packages/webview/preview/fixture.json
+.cache
+.claude/

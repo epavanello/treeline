@@ -1,0 +1,249 @@
+{
+  "name": "treeline",
+  "displayName": "Treeline — Git Graph",
+  "description": "A fast, minimal Git Graph for VS Code and Cursor: commit graph, branches, stashes, worktrees.",
+  "version": "0.1.0",
+  "publisher": "emanuele",
+  "license": "MIT",
+  "author": "Emanuele Pavanello",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/epavanello/treeline"
+  },
+  "homepage": "https://github.com/epavanello/treeline#readme",
+  "bugs": "https://github.com/epavanello/treeline/issues",
+  "private": true,
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization"
+  ],
+  "keywords": [
+    "git",
+    "graph",
+    "log",
+    "history",
+    "worktree"
+  ],
+  "main": "./dist/extension.cjs",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "treeline.view",
+        "title": "View Git Graph",
+        "category": "Treeline",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "treeline.fetch",
+        "title": "Fetch from Remote(s)",
+        "category": "Treeline"
+      },
+      {
+        "command": "treeline.generateCommitMessage",
+        "title": "Generate Commit Message with Claude",
+        "category": "Treeline",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "treeline.worktree.add",
+        "title": "New Worktree…",
+        "category": "Treeline",
+        "icon": "$(add)"
+      },
+      {
+        "command": "treeline.worktree.prune",
+        "title": "Prune Missing Worktrees",
+        "category": "Treeline",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "treeline.worktree.refresh",
+        "title": "Refresh Worktrees",
+        "category": "Treeline",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "treeline.worktree.open",
+        "title": "Open in New Window",
+        "category": "Treeline",
+        "icon": "$(empty-window)"
+      },
+      {
+        "command": "treeline.worktree.terminal",
+        "title": "Open Terminal Here",
+        "category": "Treeline",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "treeline.worktree.reveal",
+        "title": "Reveal Folder",
+        "category": "Treeline",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "treeline.worktree.copyPath",
+        "title": "Copy Path",
+        "category": "Treeline"
+      },
+      {
+        "command": "treeline.worktree.bringHere",
+        "title": "Bring Branch to Main Worktree",
+        "category": "Treeline",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "treeline.worktree.remove",
+        "title": "Remove Worktree",
+        "category": "Treeline",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "treeline.worktree.removeAndDelete",
+        "title": "Remove Worktree and Delete Branch",
+        "category": "Treeline"
+      }
+    ],
+    "menus": {
+      "scm/title": [
+        {
+          "command": "treeline.generateCommitMessage",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "treeline.view",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "treeline.worktree.add",
+          "when": "view == treeline.worktrees",
+          "group": "navigation@1"
+        },
+        {
+          "command": "treeline.worktree.refresh",
+          "when": "view == treeline.worktrees",
+          "group": "navigation@2"
+        },
+        {
+          "command": "treeline.worktree.prune",
+          "when": "view == treeline.worktrees"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "treeline.worktree.open",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(open|prunable);)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "treeline.worktree.remove",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(main|open);)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "treeline.worktree.open",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(open|prunable);)/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "treeline.worktree.terminal",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(prunable);)/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "treeline.worktree.reveal",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(prunable);)/",
+          "group": "1_open@3"
+        },
+        {
+          "command": "treeline.worktree.copyPath",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && true",
+          "group": "1_open@4"
+        },
+        {
+          "command": "treeline.worktree.bringHere",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /;branch;/ && viewItem =~ /^(?!.*;(main|open|prunable);)/",
+          "group": "2_branch@1"
+        },
+        {
+          "command": "treeline.worktree.remove",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /^(?!.*;(main|open);)/",
+          "group": "3_remove@1"
+        },
+        {
+          "command": "treeline.worktree.removeAndDelete",
+          "when": "view == treeline.worktrees && viewItem =~ /;worktree;/ && viewItem =~ /;branch;/ && viewItem =~ /^(?!.*;(main|open|prunable);)/",
+          "group": "3_remove@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "treeline.worktree.open",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.terminal",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.reveal",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.copyPath",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.bringHere",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.remove",
+          "when": "false"
+        },
+        {
+          "command": "treeline.worktree.removeAndDelete",
+          "when": "false"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "treeline.worktrees",
+          "name": "Worktrees"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "check": "tsc --noEmit -p .",
+    "test": "vitest run --dir test",
+    "package": "vsce package --no-dependencies --out treeline.vsix",
+    "fixture": "esbuild scripts/fixture-json.ts --bundle --platform=node --format=esm --outfile=.cache/fixture.mjs --log-level=warning && node .cache/fixture.mjs",
+    "e2e": "esbuild e2e/*.test.ts --bundle --platform=node --format=cjs --external:vscode --outdir=.cache/e2e --out-extension:.js=.cjs --log-level=warning && vscode-test"
+  },
+  "devDependencies": {
+    "@treeline/shared": "workspace:*",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.19.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "vitest": "^5.0.5"
+  }
+}

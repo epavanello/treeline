@@ -1,0 +1,24 @@
+{
+  "name": "treeline-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm --filter @treeline/webview build && pnpm --filter treeline build",
+    "package": "pnpm build && pnpm --filter treeline package",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test",
+    "e2e": "pnpm build && pnpm --filter treeline e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.9.10",
+    "prettier-plugin-svelte": "^4.1.1",
+    "typescript": "^5.9.3"
+  }
+}
