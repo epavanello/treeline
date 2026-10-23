@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1
+
+- Treeline is now a stable release: no more "Preview" label in the stores
+
 ## 0.4.0
 
 - Branch badges in the graph show the same hover card as the branch chips and the branch list, with the
