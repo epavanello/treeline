@@ -1,0 +1,40 @@
+# Push a tag matching the version in packages/extension/package.json (e.g. v0.1.0) to publish it to the
+# VS Code Marketplace and Open VSX, then attach the .vsix to a GitHub release.
+# Needs the repository secrets VSCE_PAT (Azure DevOps, Marketplace: Manage) and OVSX_PAT (open-vsx.org).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Tag matches the extension version
+        run: test "v$(node -p "require('./packages/extension/package.json').version")" = "$GITHUB_REF_NAME"
+      - run: pnpm test
+      - run: pnpm package
+      - name: Publish to the VS Code Marketplace
+        run: pnpm --filter treeline exec vsce publish --no-dependencies --packagePath treeline.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      - name: Publish to Open VSX
+        run: pnpm --filter treeline exec ovsx publish treeline.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+      - name: GitHub release with the .vsix and this version's changelog
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '/^## /{p=($2==v); next} p' packages/extension/CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" packages/extension/treeline.vsix --title "$GITHUB_REF_NAME" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}

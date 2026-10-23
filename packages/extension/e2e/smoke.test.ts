@@ -45,7 +45,9 @@ describe('panel', () => {
     fixtureGit = fixture.git;
     const builtin = await vscode.extensions.getExtension('vscode.git')!.activate();
     await builtin.getAPI(1).openRepository(vscode.Uri.file(dir));
-    ({ git } = await vscode.extensions.getExtension<{ git: Git }>('emanuele.treeline')!.activate());
+    ({ git } = await vscode.extensions
+      .getExtension<{ git: Git }>('epavanello.treeline')!
+      .activate());
   });
 
   afterEach(() => vscode.commands.executeCommand('workbench.action.closeAllEditors'));

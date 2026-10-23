@@ -307,7 +307,7 @@ describe('actions', () => {
       const root = realpathSync(dir);
       const builtin = await vscode.extensions.getExtension('vscode.git')!.activate();
       const repo = await builtin.getAPI(1).openRepository(vscode.Uri.file(root));
-      await vscode.extensions.getExtension('emanuele.treeline')!.activate();
+      await vscode.extensions.getExtension('epavanello.treeline')!.activate();
       writeFileSync(join(dir, 'notes.txt'), 'notes\n');
       errors = [];
 

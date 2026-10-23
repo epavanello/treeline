@@ -49,9 +49,10 @@ Later ideas: merge local branch + its upstream into one badge (like Git Graph), 
 server-side (`--grep`), a WebviewPanelSerializer so the panel survives window reloads, settings
 (page size, date format, graph style), multi-select actions.
 
-Then publish to the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and Windsurf install from
-Open VSX). The publisher ID in `packages/extension/package.json` (`emanuele`) and the name `treeline` are
-placeholders.
+Releases go to the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and Windsurf install from
+Open VSX) as `epavanello.treeline`: bump `version` in `packages/extension/package.json`, add a section to
+`packages/extension/CHANGELOG.md`, push a `v<version>` tag. `.github/workflows/release.yml` publishes with
+the `VSCE_PAT` and `OVSX_PAT` repository secrets and creates the GitHub release.
 
 ## Layout
 
