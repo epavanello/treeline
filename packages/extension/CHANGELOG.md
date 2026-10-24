@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- The store page opens on a short demo of Treeline, with a link to the full 1-minute video
+
 ## 0.4.1
 
 - Treeline is now a stable release: no more "Preview" label in the stores
