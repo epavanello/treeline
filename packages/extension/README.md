@@ -2,6 +2,10 @@
 
 **Git Graph, rebuilt for how you work today: feature branches, rebased PRs, worktrees.**
 
+[![Treeline in VS Code: open the graph, filter your branch's commits, review the diff, hide the noisy branches](https://raw.githubusercontent.com/epavanello/treeline/main/docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
+
+▶ **[Watch the 1-minute demo, with sound](https://youtu.be/tYY95Xhoqss)**
+
 ![Treeline in VS Code](https://raw.githubusercontent.com/epavanello/treeline/main/docs/hero.png)
 
 ## Why Treeline

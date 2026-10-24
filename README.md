@@ -10,7 +10,9 @@ For VS Code and Cursor.
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/epavanello.treeline?label=VS%20Code%20Marketplace&color=0a7bbb)](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-![Treeline in VS Code: your branch vs main, worktrees, branches, tags and the commit graph](docs/hero.png)
+[![Treeline in VS Code: open the graph, filter your branch's commits, review the diff, hide the noisy branches](docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
+
+▶ **[Watch the 1-minute demo, with sound](https://youtu.be/tYY95Xhoqss)**
 
 </div>
 
@@ -25,6 +27,8 @@ For VS Code and Cursor.
 | ✨  | **Commit messages by Claude.** Your local [Claude Code](https://claude.com/claude-code) CLI (or any model your editor provides) writes the message in your repository's style.                                                                                    |
 | 🙅  | **Fewer dialogs, no guessing.** Treeline asks only when something would be lost. Every button and menu item explains itself on hover, and whatever is running shows a spinner.                                                                                    |
 | 📜  | **Everything you loved in Git Graph.** Infinite history, author filter, find, compare any two commits, resizable columns, and menus for checkout, merge, rebase, cherry-pick, revert, reset, tag, push, pull, stash…                                              |
+
+![Treeline in VS Code: your branch vs main, worktrees, branches, tags and the commit graph](docs/hero.png)
 
 <table>
   <tr>
