@@ -82,11 +82,13 @@ server-side (`--grep`), a WebviewPanelSerializer so the panel survives window re
 Published as `epavanello.treeline` on the **VS Code Marketplace** and **Open VSX** (Cursor, VSCodium and
 Windsurf install from Open VSX). `.github/workflows/release.yml` runs on every push to `main`: when the
 `package.json` version has no `v<version>` tag yet, it runs the tests, packages the `.vsix`, creates the tag
-and a GitHub release (notes = that version's CHANGELOG section, required), then publishes:
+and a GitHub release (notes = that version's CHANGELOG section, required), then publishes to **both stores
+automatically** (active and verified since 0.4.2: nothing to upload by hand):
 
-- **Open VSX**: trusted publishing (GitHub OIDC, no secret), active once the repository variable
-  `OPENVSX_TRUSTED_PUBLISHING` is `true` (set after the namespace claim EclipseFdn/open-vsx.org#14627 is
-  approved and the trusted publisher is registered). Until then the step is skipped with a notice.
+- **Open VSX**: trusted publishing (GitHub OIDC, no secret), registered on the extension for
+  `epavanello/treeline` · `release.yml` (no environment) and enabled by the repository variable
+  `OPENVSX_TRUSTED_PUBLISHING=true`. The namespace `epavanello` is verified (EclipseFdn/open-vsx.org#14627).
+  An `OVSX_PAT` secret, if ever added, takes precedence.
 - **VS Code Marketplace**: automatic through **Microsoft Entra ID**: the repository variables
   `AZURE_CLIENT_ID` and `AZURE_TENANT_ID` name the Entra app `treeline-release` (in the owner's Default
   Directory), whose federated credential trusts this repo's `main` (GitHub's subject format with IDs:
@@ -99,7 +101,8 @@ and a GitHub release (notes = that version's CHANGELOG section, required), then 
   upload by hand at marketplace.visualstudio.com/manage/publishers/epavanello (… → Update).
 
 A push that changes the extension without bumping the version publishes nothing and gets a warning.
-0.1.0 was uploaded by hand to both stores.
+0.1.0 (both stores) and 0.4.2 (Open VSX, before trusted publishing could be registered) were uploaded by
+hand; every later version goes out through the workflow.
 
 ## Layout
 

@@ -8,6 +8,7 @@
 For VS Code and Cursor.
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/epavanello.treeline?label=VS%20Code%20Marketplace&color=0a7bbb)](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline)
+[![Open VSX](https://img.shields.io/open-vsx/v/epavanello/treeline?label=Open%20VSX&color=a60ee5)](https://open-vsx.org/extension/epavanello/treeline)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [![Treeline in VS Code: open the graph, filter your branch's commits, review the diff, hide the noisy branches](docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
@@ -43,14 +44,10 @@ For VS Code and Cursor.
 
 ## Install
 
-Search **Treeline** in the Extensions view, or get it from the
-[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline).
-Open VSX (Cursor, VSCodium, Windsurf) is coming; until then, Cursor installs the `.vsix` from the
-[latest release](https://github.com/epavanello/treeline/releases/latest):
-
-```bash
-cursor --install-extension treeline.vsix
-```
+Search **Treeline** in the Extensions view of VS Code, Cursor, VSCodium or Windsurf. It's on the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline) and on
+[Open VSX](https://open-vsx.org/extension/epavanello/treeline), and every release also attaches the `.vsix`
+to [GitHub Releases](https://github.com/epavanello/treeline/releases/latest).
 
 Then run **Treeline: View Git Graph**, or click **Git Graph** in the status bar.
 
