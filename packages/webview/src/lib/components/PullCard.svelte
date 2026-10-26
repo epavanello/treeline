@@ -7,7 +7,7 @@
   import { PULL_STATE } from './PullBadge.svelte';
 
   /** A pull request in a branch's card: title (opens it), state, review, conversations, checks. */
-  let { pr }: { pr: PullRequest } = $props();
+  let { pr, icon = true }: { pr: PullRequest; icon?: boolean } = $props();
 
   const s = $derived(PULL_STATE[pr.state]);
   const DECISION = {
@@ -35,10 +35,15 @@
     title="Open #{pr.number} on GitHub"
     onclick={() => host.openUrl(pr.url)}
   >
-    <s.icon class="mt-px size-3.5 shrink-0 {s.class}" />
+    {#if icon}<s.icon class="mt-px size-3.5 shrink-0 {s.class}" />{/if}
     <span><span class="text-muted-foreground">#{pr.number}</span> {pr.title}</span>
   </button>
-  <div class="ml-5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+  <div
+    class={cn(
+      'flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground',
+      icon && 'ml-5'
+    )}
+  >
     <span class={s.class}>{s.label}</span>
     {#if pr.state !== 'merged' && pr.state !== 'closed'}
       {#if pr.decision}
@@ -49,16 +54,18 @@
     {#if pr.threads.unresolved || pr.threads.resolved}
       <span class="inline-flex items-center gap-1">
         <MessageSquare class="size-3" />
-        <span class={cn(pr.threads.unresolved && 'text-dirty')}>
-          {pr.threads.unresolved} unresolved
-        </span>
-        · {pr.threads.resolved} resolved
+        {#if pr.threads.unresolved}
+          <span class="text-dirty">{pr.threads.unresolved} unresolved</span>
+          {#if pr.threads.resolved}· {pr.threads.resolved} resolved{/if}
+        {:else}
+          {pr.threads.resolved} resolved, none open
+        {/if}
       </span>
     {/if}
     <span>by {pr.author} · {ago(pr.updatedAt)}</span>
   </div>
   {#if pr.reviewers.length}
-    <div class="ml-5 flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px]">
+    <div class={cn('flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px]', icon && 'ml-5')}>
       {#each pr.reviewers as r (r.login)}
         <span class="inline-flex items-center gap-1">
           <AuthorAvatar name={r.login} email={r.login} />

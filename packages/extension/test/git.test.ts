@@ -22,6 +22,8 @@ const query = (over = {}) => ({
   base: null,
   focus: [],
   showRemotes: true,
+  showTags: true,
+  showStashes: true,
   maxCommits: 100,
   ...over
 });
@@ -298,6 +300,20 @@ describe('author filter', () => {
   });
 });
 
+describe('getGraph without tags', () => {
+  it('leaves tag badges out', async () => {
+    const g = await git.getGraph(query({ showTags: false }));
+    expect(g.commits.some((c) => c.refs.some((r) => r.kind === 'tag'))).toBe(false);
+    // The Tags row still has them
+    expect(g.tags.map((t) => t.ref.name)).toContain('v1.0');
+  });
+
+  it('leaves stash rows out', async () => {
+    const g = await git.getGraph(query({ showStashes: false }));
+    expect(g.commits.some((c) => c.stashBase)).toBe(false);
+  });
+});
+
 describe('getGraph with stale filters', () => {
   it('ignores shown branches that were deleted since', async () => {
     const g = await git.getGraph(query({ branches: ['topic', 'deleted-meanwhile'] }));
@@ -374,6 +390,22 @@ describe('branchDetails', () => {
   });
 });
 
+describe('worktreeDetails', () => {
+  it("tells whether a worktree's commit is kept on another ref", async () => {
+    const { dir: repo, git: sh } = createFixtureRepo();
+    // Detached on a commit main contains: removing it loses nothing
+    sh('worktree', 'add', '-q', '--detach', `${repo}-old`, 'main~1');
+    expect((await git.worktreeDetails(`${repo}-old`, 'main')).kept).toBe(true);
+    // On a branch only it has: its own branch doesn't count
+    sh('worktree', 'add', '-q', '-b', 'solo', `${repo}-solo`, 'main');
+    writeFileSync(join(`${repo}-solo`, 'solo.txt'), 'x\n');
+    sh('-C', `${repo}-solo`, 'add', 'solo.txt');
+    sh('-C', `${repo}-solo`, 'commit', '-q', '-m', 'Solo work');
+    expect((await git.worktreeDetails(`${repo}-solo`, 'main')).kept).toBe(false);
+    for (const wt of ['old', 'solo']) rmSync(`${repo}-${wt}`, { recursive: true, force: true });
+  });
+});
+
 describe('commonDir', () => {
   it('is the same for a repository and its worktrees', async () => {
     const { dir: repo, git: sh } = createFixtureRepo();
@@ -383,6 +415,54 @@ describe('commonDir', () => {
     expect(main).toMatch(/\.git$/);
     expect(await git.commonDir(wt)).toBe(main);
     expect(await git.commonDir(join(repo, '..'))).toBeNull();
+    rmSync(wt, { recursive: true, force: true });
+  });
+});
+
+describe('locate', () => {
+  it('finds a commit under the filters, or says why it is not there', async () => {
+    const all = await git.getGraph(query());
+    const topic = all.commits.find((c) => c.subject === 'Topic commit')!;
+    // Its row among the commits git log walks (the uncommitted and stash rows aside)
+    const at = await git.locate(query(), topic.hash);
+    const logRows = all.commits.filter((c) => c.hash !== '*' && !c.stashBase);
+    expect(at).toEqual({ at: logRows.findIndex((c) => c.hash === topic.hash) });
+    // Only main shown: hidden by that filter
+    expect(await git.locate(query({ branches: ['main'] }), topic.hash)).toEqual({ hidden: true });
+    // Another author: hidden too
+    expect(await git.locate(query({ authors: ['Nobody'] }), topic.hash)).toEqual({ hidden: true });
+  });
+});
+
+describe('detached worktrees in the graph', () => {
+  it("shows a detached worktree's own commits, which no branch reaches", async () => {
+    const { dir: repo, git: sh } = createFixtureRepo();
+    const wt = `${repo}-loose`;
+    sh('worktree', 'add', '-q', '--detach', wt, 'main');
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'Loose work'], { cwd: wt });
+    const g = await git.getGraph({ ...query(), repo });
+    const loose = g.commits.find((c) => c.subject === 'Loose work');
+    expect(loose).toBeDefined();
+    expect(await git.locate({ ...query(), repo }, loose!.hash)).toHaveProperty('at');
+    rmSync(wt, { recursive: true, force: true });
+  });
+});
+
+describe("other worktrees' uncommitted changes", () => {
+  it('get a row right above the commit their worktree is on', async () => {
+    const { dir: repo, git: sh } = createFixtureRepo();
+    const wt = `${repo}-busy`;
+    sh('worktree', 'add', '-q', wt, 'topic');
+    writeFileSync(join(wt, 'draft.txt'), 'x\n');
+    const g = await git.getGraph({ ...query(), repo });
+    const i = g.commits.findIndex((c) => c.worktree);
+    expect(g.commits[i]).toMatchObject({
+      subject: 'Uncommitted Changes (1)',
+      // The temp dir may sit behind a symlink: git reports the real path
+      worktree: expect.stringMatching(/-busy$/),
+      parents: [g.commits[i + 1].hash]
+    });
+    expect(g.commits[i + 1].subject).toBe('Topic commit');
     rmSync(wt, { recursive: true, force: true });
   });
 });

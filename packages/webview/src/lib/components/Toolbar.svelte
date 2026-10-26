@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { CloudDownload, LocateFixed, RefreshCw, Rows3, Search } from '@lucide/svelte';
+  import {
+    ChevronDown,
+    CloudDownload,
+    LocateFixed,
+    RefreshCw,
+    Rows3,
+    Search
+  } from '@lucide/svelte';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import * as Popover from '$lib/components/ui/popover';
   import { DEFAULT_VIEW } from '@treeline/shared';
   import { app } from '$lib/app.svelte';
@@ -15,6 +23,36 @@
     findInput = $bindable(),
     onFindEnter
   }: { findInput?: HTMLInputElement; onFindEnter: (back: boolean) => void } = $props();
+
+  /** What the graph shows besides the local branches (see the Include menu). */
+  const INCLUDE = [
+    {
+      label: 'Remote branches',
+      on: () => app.showRemotes,
+      set: (v: boolean) => app.setShowRemotes(v),
+      hint: 'Remote-tracking branches (origin/…) in the graph and in the branch lists. Off: just your local branches.'
+    },
+    {
+      label: 'Tags',
+      on: () => app.showTags,
+      set: (v: boolean) => app.setShowTags(v),
+      hint: 'Tag badges, and the commits only a tag reaches. Off when release or deploy tags crowd the history; the Tags row keeps listing them.'
+    },
+    {
+      label: 'Stashes',
+      on: () => app.showStashes,
+      set: (v: boolean) => app.setShowStashes(v),
+      hint: 'Stash rows, each above the commit it was taken on.'
+    }
+  ];
+  const included = $derived.by(() => {
+    const on = INCLUDE.filter((o) => o.on()).map((o) => o.label.toLowerCase());
+    return on.length === INCLUDE.length
+      ? 'Everything'
+      : on.length
+        ? on.join(', ').replace(/^./, (c) => c.toUpperCase())
+        : 'Local branches only';
+  });
 
   const ROWS = [
     ['worktrees', 'Worktrees', 'Every worktree of this repository and its status'],
@@ -81,16 +119,44 @@
     />
   </div>
 
-  <Tip
-    hint="Include remote-tracking branches (origin/…) in the graph and in the branch lists. Turn it off to focus on your local branches."
-  >
-    {#snippet children(trigger)}
-      <label {...trigger} class="flex items-center gap-1.5">
-        <Checkbox checked={app.showRemotes} onCheckedChange={(v) => app.setShowRemotes(!!v)} />
-        Show Remote Branches
-      </label>
-    {/snippet}
-  </Tip>
+  <div class="flex items-center gap-1.5">
+    <span class="text-muted-foreground">Include</span>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            variant="outline"
+            size="xs"
+            class="max-w-56 justify-between"
+            hint={{
+              title: 'What the graph includes',
+              body: 'Besides your local branches: remote branches, tags and stashes, each on or off. Remembered for this repository.'
+            }}
+          >
+            <span class="truncate">{included}</span>
+            <ChevronDown class="size-3 opacity-60" />
+          </Button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="start" class="w-60">
+        {#each INCLUDE as o (o.label)}
+          <Tip hint={o.hint} side="right">
+            {#snippet children(trigger)}
+              <DropdownMenu.CheckboxItem
+                {...trigger}
+                bind:checked={o.on, o.set}
+                closeOnSelect={false}
+                class="py-1 text-[13px]"
+              >
+                {o.label}
+              </DropdownMenu.CheckboxItem>
+            {/snippet}
+          </Tip>
+        {/each}
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
+  </div>
 
   <div class="ml-auto flex items-center gap-1">
     <div class="relative">

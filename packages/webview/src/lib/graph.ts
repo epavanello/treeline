@@ -5,7 +5,7 @@
  * Lanes keep their index for their whole life (no compaction), which keeps
  * lines straight and stable as more commits are loaded.
  */
-import { UNCOMMITTED, type Commit } from '@treeline/shared';
+import { isUncommitted, type Commit } from '@treeline/shared';
 
 export interface Edge {
   /** Lane at the row above. */
@@ -82,7 +82,7 @@ export function layout(commits: Commit[]): Layout {
         l.sources = [{ lane: j, color: l.color, dashed: l.sources.every((s) => s.dashed) }];
     }
 
-    const dashed = c.hash === UNCOMMITTED;
+    const dashed = isUncommitted(c);
     c.parents.forEach((parent, k) => {
       const existing = lanes.findIndex((l) => l?.hash === parent);
       if (existing >= 0 && k === 0 && lane < existing) {

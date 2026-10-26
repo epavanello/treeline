@@ -5,6 +5,9 @@
 
 export const UNCOMMITTED = '*';
 
+/** The Uncommitted Changes row, this folder's or another worktree's. */
+export const isUncommitted = (c: { hash: string }) => c.hash.startsWith(UNCOMMITTED);
+
 export interface Repo {
   path: string;
   name: string;
@@ -48,6 +51,11 @@ export interface Commit {
   /** Set on stash rows: the commit the stash was taken on. */
   stashBase?: string;
   /**
+   * Set on another worktree's Uncommitted Changes row (drawn above the commit it's on): that
+   * worktree's folder.
+   */
+  worktree?: string;
+  /**
    * Relative to the compare base: only on HEAD (`ahead`), only on the base (`behind`), or on one
    * side with an equivalent commit (same changes, another hash) on the other (`same`).
    */
@@ -66,6 +74,10 @@ export interface GraphQuery {
   /** Author names to show; empty = all. */
   authors: string[];
   showRemotes: boolean;
+  /** Tag badges, and the commits only tags reach. */
+  showTags: boolean;
+  /** Stash rows (above the commit each was taken on). */
+  showStashes: boolean;
   maxCommits: number;
   /** Branch to compare HEAD with; null = the default (origin/HEAD, then main/master). */
   base: string | null;
@@ -167,6 +179,11 @@ export type PullRequests =
 export interface WorktreeDetails {
   compare: Compare | null;
   files: FileChange[];
+  /**
+   * Its commit is also on another branch, a remote branch or a tag: removing the worktree (and,
+   * for a detached one, its HEAD) loses no commit.
+   */
+  kept: boolean;
 }
 
 export interface GraphData {
@@ -354,6 +371,11 @@ export interface HostApi {
   getRepos(): Promise<Repo[]>;
   getGraph(query: GraphQuery): Promise<GraphData>;
   getDetails(repo: string, commit: Commit): Promise<CommitDetails>;
+  /**
+   * Where a commit comes in the graph `query` draws (`at`: its row, to load that far at once), or,
+   * when it isn't there, whether the filters hide it.
+   */
+  locate(query: GraphQuery, hash: string): Promise<{ at: number } | { hidden: boolean }>;
   compare(repo: string, from: string, to: string): Promise<FileChange[]>;
   run(repo: string, action: Action): Promise<void>;
   openDiff(target: DiffTarget): Promise<void>;

@@ -5,11 +5,11 @@
  */
 import type {
   BranchDetails,
-  Compare,
   GraphData,
   PullRequest,
   RefSummary,
-  Worktree
+  Worktree,
+  WorktreeDetails
 } from '@treeline/shared';
 
 export interface BranchFilter {
@@ -21,7 +21,7 @@ export interface BranchFilter {
 
 export interface WorktreeFilter {
   owner: 'anyone' | 'mine';
-  state: 'any' | 'changes' | 'clean' | 'merged' | 'stale';
+  state: 'any' | 'changes' | 'clean' | 'merged' | 'disposable' | 'stale';
 }
 
 export const DEFAULT_BRANCH_FILTER: BranchFilter = {
@@ -34,7 +34,7 @@ export const DEFAULT_WORKTREE_FILTER: WorktreeFilter = { owner: 'anyone', state:
 /** States whose chips are cleanup candidates: the row offers to delete or remove them all. */
 export const CLEANUP = {
   branches: ['merged', 'gone', 'stale'] as BranchFilter['state'][],
-  worktrees: ['merged', 'clean', 'stale'] as WorktreeFilter['state'][]
+  worktrees: ['disposable', 'merged', 'clean', 'stale'] as WorktreeFilter['state'][]
 };
 
 /** No commit for this long: stale. */
@@ -168,10 +168,24 @@ export const deletable = (row: BranchRow, data: GraphData, base: string | undefi
   !sides(row).some((r) => isBase(r, base)) &&
   !(row.local && (row.local.ref.worktree || row.local.ref.name === data.currentBranch));
 
+/** Merged into the base: every commit is there (or copied there), or its pull request was merged. */
+const worktreeMerged = (w: Worktree, d: WorktreeDetails | undefined, ctx: Context) =>
+  !w.main && ((!!d?.compare && d.compare.ahead === 0) || mergedByPull(w.head, ctx.pulls));
+
+/**
+ * Nothing to lose: removing it (with its branch) loses no work. Clean, and either detached on a
+ * commit another ref keeps (a temporary checkout), or on a branch that's merged. A branch not merged
+ * yet is work in progress, however safe its folder is to remove.
+ */
+export function isDisposable(w: Worktree, d: WorktreeDetails | undefined, ctx: Context) {
+  if (w.main || w.current || w.prunable || !d || w.status?.changes !== 0) return false;
+  return w.branch ? worktreeMerged(w, d, ctx) : d.kept;
+}
+
 export function worktreeMatches(
   w: Worktree,
   f: WorktreeFilter,
-  compare: Compare | null | undefined,
+  d: WorktreeDetails | undefined,
   ctx: Context
 ) {
   if (f.owner === 'mine' && !(w.branch && isMine(ctx.details[w.branch], ctx.user))) return false;
@@ -181,9 +195,9 @@ export function worktreeMatches(
     case 'clean':
       return w.status?.changes === 0;
     case 'merged':
-      // Nothing of its own left: every commit is on the base (or copied there), or its pull request
-      // was merged (squash merges included)
-      return !w.main && ((!!compare && compare.ahead === 0) || mergedByPull(w.head, ctx.pulls));
+      return worktreeMerged(w, d, ctx);
+    case 'disposable':
+      return isDisposable(w, d, ctx);
     case 'stale':
       return !!w.headDate && ctx.now - w.headDate > STALE;
   }

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.6.0
+
+- Hover cards are the legend of their chip: every line starts with the very symbol the chip shows
+  (✎ uncommitted changes, ↑↓ against the base, the cloud, the pull request, the owner, the age), then
+  says what it means. Hashes and folders sit in fields you can select or copy with one click
+- A worktree's card is its branch's card plus what makes it a worktree: its uncommitted files (the first
+  few, with their status) and its folder
+- Worktree chips show what their branch's chip shows: ↑↓ against the base (detached ones too), the
+  cloud, an open pull request, the owner, the age. A detached worktree shows a commit icon instead of
+  its hash, and a clean one no check mark: no pen means nothing uncommitted
+- Clicking a worktree's chip shows it in the graph, like a branch's: its commit, selected and scrolled
+  to; with uncommitted changes, those open in the panel below, with their diffs
+- A detached worktree gets a folder badge on its commit in the graph, with its card and menu: no
+  branch badge marked it before. Worktree badges show their uncommitted changes, without repeating the
+  remote state the cloud already gives
+- Worktrees with nothing to lose are marked ♻: clean, and detached on a commit another branch or tag
+  already has (temporary checkouts), or on a merged branch. A "Nothing to lose" filter lists them with
+  a button to remove them all
+- Going to a commit (a chip's click, Go to HEAD) first asks git where it is: when it's far down, the
+  history loads that far in one go, with a progress note, instead of page after page; when a filter
+  hides it, a note says which one, with a Show it button that lifts it and takes you there
+- Another worktree's uncommitted changes get a row of their own, right above the commit it's on, like
+  this folder's, marked with the worktree's folder badge: selecting it lists its files (diffs on the
+  real files there), selecting the commit shows the commit. Clicking the worktree's chip selects that
+  row
+- When you change a filter or a commit is being looked up, the list dims and says what it's doing
+  ("Applying the filters…", "Finding that commit…", "Loading the history down to that commit…"), so a
+  big repository doesn't look stuck. Reloads after changes on disk stay quiet
+- A detached worktree's own commits (on no branch) now show in the graph
+- An Include menu in the toolbar says what the graph shows besides your local branches: remote
+  branches, tags, stashes, each on or off and remembered per repository (it replaces the Show Remote
+  Branches checkbox). The Tags row keeps listing tags either way
+- Commit rows lose their green and blue background: the bar on the left still says ahead or behind,
+  and the selected row stands out again
+
 ## 0.5.0
 
 - A branch is one chip in the Branches row: your local branch and the remote branch it tracks

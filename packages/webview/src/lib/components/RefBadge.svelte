@@ -27,7 +27,8 @@
     busy = false,
     remote,
     onremotemenu,
-    card
+    card,
+    detached = false
   }: {
     ref: Ref;
     color: string;
@@ -42,6 +43,8 @@
     onremotemenu?: (e: MouseEvent, remote: Ref) => void;
     /** Its details, for the hover card (branches and tags). */
     card?: RefSummary;
+    /** A detached worktree's folder, not a branch: no cloud, no owner. */
+    detached?: boolean;
   } = $props();
 
   const Icon = $derived(
@@ -60,7 +63,13 @@
 
 <!-- Branches and tags show the same card as everywhere else (RefCard); stashes a plain title -->
 {#snippet details()}
-  {#if card}<RefCard r={card} footer="Right-click: its actions" />{/if}
+  {#if card}
+    <RefCard
+      r={card}
+      worktree={app.data?.worktrees.find((w) => w.path === ref.worktree)}
+      footer="Right-click: its actions"
+    />
+  {/if}
 {/snippet}
 <Tip content={card ? details : undefined}>
   {#snippet children(trigger)}
@@ -97,7 +106,7 @@
         >
           <Cloud class="size-3 fill-current" />{#if manyRemotes}{remote.remote}{/if}
         </span>
-      {:else if ref.kind === 'head'}
+      {:else if ref.kind === 'head' && !detached}
         {#if !up || up.gone}
           <span
             class={cn('inline-flex shrink-0', up?.gone ? 'text-dirty' : 'opacity-50')}
@@ -123,7 +132,8 @@
         <AuthorAvatar name={o.name} email={o.email} class="size-3.5" />
       {/if}
       {#if status}
-        <WorktreeState {status} />
+        <!-- Its changes only: the cloud already says where it stands with its remote -->
+        <WorktreeState {status} sync={false} />
       {/if}
     </span>
   {/snippet}

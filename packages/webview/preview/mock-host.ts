@@ -73,8 +73,10 @@ function demoPulls(): PullRequest[] {
   ];
 }
 
-const reply = (id: number, result: unknown) =>
-  setTimeout(() => window.postMessage({ id, result }, '*'), 30);
+/** `?slow`: the graph takes a while to load, as in a big repository (to see the loading states). */
+const slow = new URLSearchParams(location.search).has('slow');
+const reply = (id: number, result: unknown, ms = 30) =>
+  setTimeout(() => window.postMessage({ id, result }, '*'), ms);
 
 let state: unknown;
 let view = structuredClone(DEFAULT_VIEW);
@@ -90,6 +92,8 @@ let repoView: Record<string, unknown> | null = null;
       case 'getGraph': {
         const q = args[0] as GraphQuery;
         const all = fixture.graph.commits
+          .filter((c) => q.showStashes || !(c as { stashBase?: string }).stashBase)
+          .map((c) => (q.showTags ? c : { ...c, refs: c.refs.filter((r) => r.kind !== 'tag') }))
           .filter((c) => !q.authors.length || q.authors.includes(c.author))
           .filter(
             (c) =>
@@ -98,11 +102,21 @@ let repoView: Record<string, unknown> | null = null;
               c.hash === fixture.graph.compare?.mergeBase
           );
         const commits = all.slice(0, q.maxCommits);
-        return reply(id, {
-          ...fixture.graph,
-          commits,
-          hasMore: commits.length < all.length
-        });
+        return reply(
+          id,
+          { ...fixture.graph, commits, hasMore: commits.length < all.length },
+          slow ? 1500 : 30
+        );
+      }
+      case 'locate': {
+        const [q, hash] = args as [GraphQuery, string];
+        const rows = fixture.graph.commits.filter(
+          (c) => c.hash !== '*' && !(c as { stashBase?: string }).stashBase
+        );
+        const at = rows
+          .filter((c) => !q.authors.length || q.authors.includes(c.author))
+          .findIndex((c) => c.hash === hash);
+        return reply(id, at >= 0 ? { at } : { hidden: rows.some((c) => c.hash === hash) });
       }
       case 'getDetails':
         return reply(
@@ -119,7 +133,8 @@ let repoView: Record<string, unknown> | null = null;
           id,
           (fixture.worktreeDetails as Record<string, unknown>)[args[0] as string] ?? {
             compare: null,
-            files: []
+            files: [],
+            kept: false
           }
         );
       case 'getBranchDetails': {

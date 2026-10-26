@@ -12,6 +12,7 @@
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
   import * as Tooltip from '$lib/components/ui/tooltip';
+  import { cn } from '$lib/utils';
 
   /**
    * Wraps one element in a tooltip showing `hint`. The element receives the trigger props:
@@ -47,7 +48,11 @@
     <Tooltip.Content
       {side}
       sideOffset={4}
-      class="flex max-w-80 flex-col gap-1 text-left [overflow-wrap:anywhere]"
+      class={cn(
+        'flex flex-col gap-1 text-left [overflow-wrap:anywhere]',
+        // Cards (rich content) get room for their two columns; hints wrap like sentences
+        content ? 'w-[23rem] max-w-[calc(100vw-1rem)] gap-1.5' : 'max-w-80'
+      )}
     >
       {#if content}
         {@render content()}

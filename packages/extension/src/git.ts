@@ -123,22 +123,14 @@ export class Git {
       }
     }
     const focus = compare && q.focus.length ? q.focus : null;
-    // Branches picked to show that were deleted since: git log would fail on them
-    const shown = q.branches.filter((b) => refs.some((r) => r.ref.name === b));
-    const revs = focus
-      ? ['--boundary', `HEAD...${compare!.base}`]
-      : shown.length
-        ? shown
-        : [
-            // --exclude applies to the next --branches / --remotes, with names relative to them
-            ...exclude(q.hidden, refs, 'head'),
-            '--branches',
-            '--tags',
-            ...(q.showRemotes ? [...exclude(q.hidden, refs, 'remote'), '--remotes'] : []),
-            // Hiding the current branch hides HEAD too, or nothing would change
-            ...(head && !(currentBranch && q.hidden.includes(currentBranch)) ? ['HEAD'] : [])
-          ];
-    const stashBases = [...new Set(stashes.map((s) => s.stashBase!))];
+    const { revs } = this.revs(q, {
+      refs,
+      head,
+      currentBranch,
+      base: focus ? compare!.base : null,
+      stashBases: [...new Set(stashes.map((s) => s.stashBase!))],
+      detached: worktrees.flatMap((w) => (!w.branch && w.head ? [w.head] : []))
+    });
     const log =
       head || refs.length
         ? await this.exec(q.repo, [
@@ -146,10 +138,7 @@ export class Git {
             `--max-count=${q.maxCommits + 1}`,
             '--date-order',
             `--format=%H${F}%P${F}%aN${F}%aE${F}%at${F}%s${R}`,
-            // Repeated --author is an OR; anchor on "Name <" so names match exactly
-            ...q.authors.map((a) => `--author=^${a.replace(/[\\.[\]*^$]/g, '\\$&')} <`),
             ...revs,
-            ...(shown.length || focus ? [] : stashBases),
             '--'
           ])
         : '';
@@ -170,14 +159,33 @@ export class Git {
     // Annotate refs
     const byHash = new Map(commits.map((c) => [c.hash, c]));
     for (const { hash, ref } of refs) {
-      if (ref.kind === 'remote' && !q.showRemotes) continue;
+      if ((ref.kind === 'remote' && !q.showRemotes) || (ref.kind === 'tag' && !q.showTags))
+        continue;
       byHash.get(hash)?.refs.push(ref);
     }
 
     // Splice stashes in right above their base commit
-    for (const stash of stashes) {
+    for (const stash of q.showStashes ? stashes : []) {
       const at = commits.findIndex((c) => c.hash === stash.stashBase);
       if (at >= 0) commits.splice(at, 0, stash);
+    }
+
+    // Other worktrees' uncommitted changes, each right above the commit that worktree is on
+    for (const w of worktrees) {
+      if (w.current || w.prunable || !w.status?.changes) continue;
+      const at = commits.findIndex((c) => c.hash === w.head);
+      if (at < 0) continue;
+      commits.splice(at, 0, {
+        hash: `${UNCOMMITTED}${w.path}`,
+        parents: [w.head],
+        author: '*',
+        email: '',
+        date: Math.round(Date.now() / 1000),
+        // Its folder shows as a badge on the row
+        subject: `Uncommitted Changes (${w.status.changes})`,
+        refs: [],
+        worktree: w.path
+      });
     }
 
     // Uncommitted changes row, always on top
@@ -224,6 +232,108 @@ export class Git {
       user,
       hasMore
     };
+  }
+
+  /**
+   * What `git log` walks for the graph `q`: the author filter, then the branches shown (or all but the
+   * hidden ones, tags and remotes as asked, HEAD), the commits stashes were taken on, and detached
+   * worktrees' commits (nothing else reaches those); with `base`, only what diverged from it.
+   */
+  private revs(
+    q: GraphQuery,
+    c: {
+      refs: RefSummary[];
+      head: string | null;
+      currentBranch: string | null;
+      base: string | null;
+      stashBases: string[];
+      detached: string[];
+    }
+  ) {
+    // Branches picked to show that were deleted since: git log would fail on them
+    const shown = q.branches.filter((b) => c.refs.some((r) => r.ref.name === b));
+    const revs = c.base
+      ? ['--boundary', `HEAD...${c.base}`]
+      : shown.length
+        ? shown
+        : [
+            // --exclude applies to the next --branches / --remotes, with names relative to them
+            ...exclude(q.hidden, c.refs, 'head'),
+            '--branches',
+            ...(q.showTags ? ['--tags'] : []),
+            ...(q.showRemotes ? [...exclude(q.hidden, c.refs, 'remote'), '--remotes'] : []),
+            // Hiding the current branch hides HEAD too, or nothing would change
+            ...(c.head && !(c.currentBranch && q.hidden.includes(c.currentBranch)) ? ['HEAD'] : []),
+            ...(q.showStashes ? c.stashBases : []),
+            ...c.detached
+          ];
+    return {
+      shown,
+      revs: [
+        // Repeated --author is an OR; anchor on "Name <" so names match exactly
+        ...q.authors.map((a) => `--author=^${a.replace(/[\\.[\]*^$]/g, '\\$&')} <`),
+        ...revs
+      ]
+    };
+  }
+
+  /**
+   * Where `hash` comes in the graph `q` draws: its row among the commits, so a load can be sized to
+   * reach it at once; or, when it isn't there, whether the filters hide it (`hidden`) or no branch,
+   * tag or worktree has it at all.
+   */
+  async locate(q: GraphQuery, hash: string): Promise<{ at: number } | { hidden: boolean }> {
+    const remotes = lines(await this.try(this.exec(q.repo, ['remote']), ''));
+    const [refs, head, currentBranch, stashes, worktrees] = await Promise.all([
+      this.getRefs(q.repo, remotes),
+      this.try(
+        this.exec(q.repo, ['rev-parse', '--verify', '-q', 'HEAD']).then((s) => s.trim() || null),
+        null
+      ),
+      this.try(
+        this.exec(q.repo, ['symbolic-ref', '-q', '--short', 'HEAD']).then((s) => s.trim() || null),
+        null
+      ),
+      this.getStashes(q.repo),
+      this.try(this.exec(q.repo, ['worktree', 'list', '--porcelain']), '')
+    ]);
+    // Detached worktrees: a "HEAD <hash>" line followed by "detached"
+    const detached = [...worktrees.matchAll(/^HEAD (\w+)\ndetached$/gm)].map((m) => m[1]);
+    const base = q.focus.length
+      ? await this.resolveBase(q.repo, refs).then((b) => q.base ?? b)
+      : null;
+    const { revs } = this.revs(q, {
+      refs,
+      head,
+      currentBranch,
+      base,
+      stashBases: [...new Set(stashes.map((s) => s.stashBase!))],
+      detached
+    });
+    const order = lines(
+      await this.try(this.exec(q.repo, ['rev-list', '--date-order', ...revs, '--']), '')
+    ).map((l) => l.replace(/^-/, ''));
+    const at = order.indexOf(hash);
+    if (at >= 0) return { at };
+    const kept = await this.try(
+      this.exec(q.repo, [
+        'for-each-ref',
+        '--count=1',
+        '--contains',
+        hash,
+        'refs/heads',
+        'refs/remotes',
+        'refs/tags'
+      ]).then((s) => !!s.trim()),
+      false
+    );
+    const inHead = head
+      ? await this.exec(q.repo, ['merge-base', '--is-ancestor', hash, 'HEAD']).then(
+          () => true,
+          () => false
+        )
+      : false;
+    return { hidden: kept || inHead || detached.includes(hash) };
   }
 
   /** Ahead/behind `base` for every branch, by full ref name, in one call (empty before git 2.41). */
@@ -377,10 +487,11 @@ export class Git {
         : '',
       this.try(this.compare(path, 'HEAD', UNCOMMITTED), [] as FileChange[])
     ]);
+    const kept = head ? await this.keptElsewhere(path, head) : false;
     // The comparison can take seconds on diverged histories: reuse it until either side moves
     const key = `${head} ${base} ${baseHash}`;
     const cached = this.worktreeCompares.get(path);
-    if (cached?.key === key) return { compare: cached.compare, files };
+    if (cached?.key === key) return { compare: cached.compare, files, kept };
     const full = base ? await this.getCompare(path, base, []) : null;
     let compare: Compare | null = null;
     if (full) {
@@ -388,7 +499,31 @@ export class Git {
       compare = withoutSides;
     }
     this.worktreeCompares.set(path, { key, compare });
-    return { compare, files };
+    return { compare, files, kept };
+  }
+
+  /** Whether a ref other than the branch checked out at `path` contains `commit`. */
+  private async keptElsewhere(path: string, commit: string) {
+    const [own, refs] = await Promise.all([
+      this.try(
+        this.exec(path, ['symbolic-ref', '-q', 'HEAD']).then((s) => s.trim()),
+        ''
+      ),
+      this.try(
+        this.exec(path, [
+          'for-each-ref',
+          '--count=20',
+          '--contains',
+          commit,
+          '--format=%(refname)',
+          'refs/heads',
+          'refs/remotes',
+          'refs/tags'
+        ]),
+        ''
+      )
+    ]);
+    return lines(refs).some((r) => r !== own && !r.endsWith('/HEAD'));
   }
 
   async getWorktrees(repo: string): Promise<Worktree[]> {

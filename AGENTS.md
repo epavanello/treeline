@@ -83,6 +83,8 @@ branch with main, review diffs with working language features, juggle worktrees 
    Their + runs `newWorktree`: a native QuickPick of free local branches, remote
    branches, and "new branch from <compare base>" (fetched first, `--no-track`) or from any branch; the name
    of a new branch is an InputBox validated with `git check-ref-format`. `addTag` suggests the next semver.
+   A worktree's card is `RefCard` with `worktree` set (its branch's card plus changed files, the
+   folder in a copyable field); its chip adds the branch's `BranchState` and `PullBadge`.
    A worktree's menu has open in a new window, "Bring Branch to Main Worktree" (remove the worktree, check
    the branch out in the main one, carrying uncommitted changes through a stash) and "Remove Worktree and
    Delete Branch". (A native Worktrees view in the Source Control sidebar existed until 0.4.0: the graph
@@ -186,7 +188,15 @@ packages/
 - **Graph**: `graph.ts` assigns each commit a lane and produces the edges into each row from the row above.
   Lanes never compact; a first parent further right is pulled into the child's lane so the mainline stays
   left. `GraphSvg.svelte` draws one SVG for the whole list.
-- **Rows**: uncommitted changes (`hash === '*'`) on top, stashes right above their base commit.
+- **Rows**: uncommitted changes (`hash === '*'`) on top, stashes right above their base commit, and each
+  other worktree's uncommitted changes (`Commit.worktree`, hash `*<path>`, `isUncommitted()`) right
+  above the commit it's on, with its folder badge; selecting that row opens the worktree's files.
+  Detached worktrees' commits are walked too (`Git.revs`), and get a folder badge when clean.
+- **Include** (toolbar): `GraphQuery.showRemotes/showTags/showStashes`, part of the per-repo `RepoView`.
+- **Going to a commit** (`app.reveal`): `Git.locate` first runs `rev-list` with the graph's own
+  revisions (`Git.revs`, shared with `getGraph`) to find its row; a far one loads in one sized step, a
+  filtered-out one gets a notice with "Show it". Reloads you ask for (filters, lookups) set
+  `app.working`: the list dims under a note. Background reloads stay quiet.
 - **Theming**: shadcn tokens map to `--vscode-*` variables in `src/app.css`; no palettes of our own.
   `dark:` = `.vscode-dark` / `.vscode-high-contrast` on `<body>`.
 - **Async buttons**: `Button` (copied from devmotion) shows a spinner automatically when `onclick` returns a
@@ -226,6 +236,10 @@ Install the build: `code --install-extension packages/extension/treeline.vsix`
   (no dynamic `import()`), no remote resources.
 - Tailwind's `@source '.'` in `app.css` is needed for the browser preview (Vite root = `preview/`).
 - `vsce package --no-dependencies`: everything must be bundled; dependencies are devDependencies.
+- Svelte 5 proxies objects put in `$state`: one compared by identity later (a token such as
+  `app.working`, `app.notice`) must be `$state.raw`, or the comparison never holds. A bits-ui checkbox
+  driven from app state: `bind:checked={get, set}` with setters that ignore unchanged values, never
+  `checked` + `onCheckedChange` (it echoes the change back and loops).
 - Context menus: one `ActionMenu` per area; children call `open(e, items)` and the innermost element wins.
   A `MenuItem` may carry an `icon` (lucide), be `destructive`, or hold `items` (a submenu); empty
   submenus and stray separators are dropped. Branch deletion is `deleteItems()`: one item or a submenu,

@@ -22,19 +22,25 @@
 </script>
 
 <script lang="ts">
-  import { Check, CloudDownload, CloudOff, CloudUpload, FilePen } from '@lucide/svelte';
+  import { CloudDownload, CloudOff, CloudUpload, FilePen } from '@lucide/svelte';
 
   /**
-   * A worktree's local status: a file-with-pen count of uncommitted changes (or ✓ clean), then ☁↑ commits to push and
+   * A worktree's local status: a file-with-pen count of uncommitted changes (nothing when clean), then ☁↑ commits to push and
    * ☁↓ commits to pull relative to its upstream, or a crossed cloud when it has none yet.
    */
   let {
     status: s,
-    changes = true
+    changes = true,
+    sync = true,
+    faded = false
   }: {
     status: WorktreeStatus;
     /** Show the uncommitted changes (off for a branch, which only has a sync state). */
     changes?: boolean;
+    /** Show where it stands with its upstream (off where a BranchState shows it). */
+    sync?: boolean;
+    /** When clean, a faded pen instead of nothing (a card's legend). */
+    faded?: boolean;
   } = $props();
 
   // Digits sit on the baseline, so their ink is ~0.5px below the line's centre, where
@@ -49,20 +55,23 @@
     <span class="inline-flex items-center gap-0.5 text-dirty">
       <FilePen class={icon} />{s.changes}
     </span>
-  {:else}
-    <span class="inline-flex opacity-60"><Check class={icon} /></span>
+  {:else if faded}
+    <!-- Clean: the chip shows nothing; a card's legend shows the pen, faded -->
+    <span class="inline-flex opacity-40"><FilePen class={icon} /></span>
   {/if}
-  {#if !s.upstream}
+  {#if !sync}
+    <!-- Changes only -->
+  {:else if !s.upstream}
     <span class="inline-flex opacity-60">
       <CloudOff class={icon} />
     </span>
   {/if}
-  {#if s.ahead}
+  {#if sync && s.ahead}
     <span class="inline-flex items-center gap-0.5">
       <CloudUpload class={icon} />{s.ahead}
     </span>
   {/if}
-  {#if s.behind}
+  {#if sync && s.behind}
     <span class="inline-flex items-center gap-0.5">
       <CloudDownload class={icon} />{s.behind}
     </span>

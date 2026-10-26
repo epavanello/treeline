@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { LoaderCircle, X } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
+  import { Button } from '$lib/components/ui/button';
   import CommitList from '$lib/components/CommitList.svelte';
   import CompareBar from '$lib/components/CompareBar.svelte';
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
@@ -68,7 +70,24 @@
     <RefStrip kind="heads" />
     <RefStrip kind="tags" />
     {#if app.notice}
-      <div class="border-b px-3 py-1.5 text-xs text-muted-foreground">{app.notice}</div>
+      {@const n = app.notice}
+      <div class="flex items-center gap-2 border-b px-3 py-1 text-xs text-muted-foreground">
+        {#if n.busy}<LoaderCircle class="size-3.5 shrink-0 animate-spin" />{/if}
+        <span>{n.text}</span>
+        {#if n.action}
+          <Button variant="outline" size="xs" class="h-6" onclick={() => n.action!.run()}>
+            {n.action.label}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            class="ml-auto"
+            icon={X}
+            hint="Dismiss"
+            onclick={() => (app.notice = null)}
+          />
+        {/if}
+      </div>
     {/if}
     {#if app.error}
       <div class="border-b px-3 py-2 text-xs text-destructive">{app.error}</div>

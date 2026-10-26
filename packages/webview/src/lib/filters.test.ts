@@ -148,8 +148,13 @@ describe('worktree filters', () => {
     mergeBaseDate: null,
     rewritten: false
   });
-  const matches = (w: Worktree, f = {}, ahead = 1) =>
-    worktreeMatches(w, { ...DEFAULT_WORKTREE_FILTER, ...f }, compare(ahead), ctx);
+  const matches = (w: Worktree, f = {}, ahead = 1, kept = false) =>
+    worktreeMatches(
+      w,
+      { ...DEFAULT_WORKTREE_FILTER, ...f },
+      { compare: compare(ahead), files: [], kept },
+      ctx
+    );
 
   it('tells work in progress, clean, merged and stale worktrees apart', () => {
     const dirty = wt({ status: { changes: 2, ahead: 0, behind: 0, upstream: null } });
@@ -161,6 +166,17 @@ describe('worktree filters', () => {
     expect(matches(wt({ headDate: NOW - 40 * DAY }), { state: 'stale' })).toBe(true);
     expect(matches(wt({ branch: 'theirs' }), { owner: 'mine' })).toBe(false);
     expect(matches(wt({}), { owner: 'mine' })).toBe(true);
+  });
+
+  it('knows which ones have nothing to lose', () => {
+    const detached = wt({ branch: null });
+    expect(matches(detached, { state: 'disposable' }, 5, true)).toBe(true);
+    expect(matches(detached, { state: 'disposable' }, 5, false)).toBe(false);
+    // A branch: only once merged; never with uncommitted changes
+    expect(matches(wt({}), { state: 'disposable' }, 1, true)).toBe(false);
+    expect(matches(wt({}), { state: 'disposable' }, 0, true)).toBe(true);
+    const dirty = wt({ status: { changes: 1, ahead: 0, behind: 0, upstream: null } });
+    expect(matches(dirty, { state: 'disposable' }, 0, true)).toBe(false);
   });
 
   it('never removes the main worktree or the one in this graph', () => {

@@ -10,7 +10,21 @@
    * push and ↓ to pull when they differ. An outline cloud: only on the remote. A crossed cloud: only
    * here, never pushed, or (in the warning color) deleted on the remote.
    */
-  let { r }: { r: RefSummary } = $props();
+  let {
+    r,
+    arrows = true,
+    cloud = true,
+    vs
+  }: {
+    r: RefSummary;
+    /** Show ↑↓ against the base (the card shows the parts on separate lines). */
+    arrows?: boolean;
+    /** Show the cloud. */
+    cloud?: boolean;
+    /** Ahead/behind to show instead of the ref's own (a worktree's, copies told apart). */
+    vs?: { ahead: number; behind: number } | null;
+  } = $props();
+  const counts = $derived(vs ?? r.vsBase);
 
   const base = $derived(app.data?.compare?.base);
   const row = $derived(app.rowOf.get(r.ref.name));
@@ -43,29 +57,30 @@
 </script>
 
 <span class="inline-flex shrink-0 items-center gap-1.5 text-[11px] leading-none tabular-nums">
-  {#if r.vsBase?.ahead}
-    <span class="text-ahead" title="{r.vsBase.ahead} commits not on {base}">↑{r.vsBase.ahead}</span>
+  {#if arrows && counts?.ahead}
+    <span class="text-ahead" title="{counts.ahead} commits not on {base}">↑{counts.ahead}</span>
   {/if}
-  {#if r.vsBase?.behind}
-    <span class="text-behind" title="{r.vsBase.behind} commits on {base} it doesn't have"
-      >↓{r.vsBase.behind}</span
+  {#if arrows && counts?.behind}
+    <span class="text-behind" title="{counts.behind} commits on {base} it doesn't have"
+      >↓{counts.behind}</span
     >
   {/if}
-  <span
-    class={cn(
-      'inline-flex items-center gap-0.5',
-      where === 'gone' ? 'text-dirty' : where === 'both' ? '' : 'opacity-60'
-    )}
-    {title}
-  >
-    {#if where === 'both'}
-      <Cloud class="{icon} fill-current" />
-      {#if up?.ahead}↑{up.ahead}{/if}
-      {#if up?.behind}↓{up.behind}{/if}
-    {:else if where === 'remote'}
-      <Cloud class={icon} />
-    {:else}
-      <CloudOff class={icon} />
-    {/if}
-  </span>
+  {#if cloud}<span
+      class={cn(
+        'inline-flex items-center gap-0.5',
+        where === 'gone' ? 'text-dirty' : where === 'both' ? '' : 'opacity-60'
+      )}
+      {title}
+    >
+      {#if where === 'both'}
+        <Cloud class="{icon} fill-current" />
+        {#if up?.ahead}↑{up.ahead}{/if}
+        {#if up?.behind}↓{up.behind}{/if}
+      {:else if where === 'remote'}
+        <Cloud class={icon} />
+      {:else}
+        <CloudOff class={icon} />
+      {/if}
+    </span>
+  {/if}
 </span>

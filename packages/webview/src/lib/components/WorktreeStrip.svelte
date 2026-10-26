@@ -1,14 +1,23 @@
 <script lang="ts">
-  import { ago, type Worktree } from '@treeline/shared';
-  import { FolderGit2, LoaderCircle, Plus, Trash2, TriangleAlert } from '@lucide/svelte';
+  import { since, type RefSummary, type Worktree } from '@treeline/shared';
+  import {
+    FolderGit2,
+    GitCommitHorizontal,
+    LoaderCircle,
+    Plus,
+    Recycle,
+    Trash2,
+    TriangleAlert
+  } from '@lucide/svelte';
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
   import {
     CLEANUP,
     DEFAULT_WORKTREE_FILTER,
+    isDisposable,
     owner,
+    pullsOf,
     removable,
-    STALE,
     worktreeMatches,
     type WorktreeFilter
   } from '$lib/filters';
@@ -18,9 +27,10 @@
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
   import AuthorAvatar from './AuthorAvatar.svelte';
-  import AuthorStack from './AuthorStack.svelte';
+  import BranchState from './BranchState.svelte';
   import FilterMenu from './FilterMenu.svelte';
-  import { CARD_LIST } from './RefCard.svelte';
+  import PullBadge from './PullBadge.svelte';
+  import RefCard from './RefCard.svelte';
   import NavStrip from './NavStrip.svelte';
   import Tip from './Tip.svelte';
   import WorktreeState from './WorktreeState.svelte';
@@ -40,7 +50,7 @@
   const f = $derived(app.worktreeFilter);
   const worktrees = $derived(
     all.filter((w) =>
-      worktreeMatches(w, f, app.worktreeDetails[w.path]?.compare, app.filterContext)
+      worktreeMatches(w, f, app.worktreeDetails[w.path] ?? undefined, app.filterContext)
     )
   );
   const active = $derived(
@@ -49,8 +59,14 @@
   const cleanup = $derived(CLEANUP.worktrees.includes(f.state) ? worktrees.filter(removable) : []);
   const base = $derived(app.data?.compare?.base ?? 'the base');
   const folder = (path: string) => path.split(/[\\/]/).pop();
-
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  /** The branch it has checked out, as the branch row knows it (a stand-in when detached). */
+  const summaryOf = (w: Worktree): RefSummary =>
+    app.data?.heads.find((h) => h.ref.name === w.branch) ?? {
+      ref: { kind: 'head', name: w.branch ?? `detached ${w.head.slice(0, 8)}` },
+      hash: w.head,
+      date: w.headDate ?? 0,
+      subject: w.headSubject ?? ''
+    };
 </script>
 
 {#snippet menu()}
@@ -86,6 +102,11 @@
             value: 'clean',
             label: 'Clean',
             hint: 'Nothing uncommitted: removing the folder loses nothing, its branch stays. Lists them with a button to remove them all.'
+          },
+          {
+            value: 'disposable',
+            label: 'Nothing to lose',
+            hint: 'Clean, and either detached on a commit a branch or tag already has (temporary checkouts), or on a merged branch: removing them loses no work. Lists them with a button to remove them all.'
           },
           {
             value: 'merged',
@@ -144,131 +165,18 @@
           </Button>
         {/if}
         {#each worktrees as w (w.path)}
-          <!-- The card shown on hover: what this worktree is, how old and how dirty -->
+          {@const r = summaryOf(w)}
+          {@const pr =
+            w.branch && app.rowOf.get(w.branch)
+              ? pullsOf(app.rowOf.get(w.branch)!, app.filterContext.pulls)[0]
+              : undefined}
+          <!-- The card shown on hover: its branch's card, plus its folder and uncommitted files -->
           {#snippet details()}
-            {@const s = w.status}
-            {@const stale = !!w.headDate && Date.now() / 1000 - w.headDate > STALE}
-            {@const d = app.worktreeDetails[w.path]}
-            <div class="flex items-center gap-1.5">
-              <FolderGit2 class="size-3.5 shrink-0" />
-              <span class="font-semibold">{folder(w.path)}</span>
-              {#if w.current || w.main || w.locked}
-                <span class="rounded-sm border px-1 text-[10px] leading-4 text-muted-foreground">
-                  {w.current ? 'in this graph' : w.main ? 'main worktree' : 'locked'}
-                </span>
-              {/if}
-            </div>
-            <dl class={CARD_LIST}>
-              <dt class="text-muted-foreground">Branch</dt>
-              <dd class="font-mono">{w.branch ?? `detached at ${w.head.slice(0, 8)}`}</dd>
-              {#if w.branch && app.branchDetails[w.branch]}
-                {@const bd = app.branchDetails[w.branch]}
-                {@const o = owner(bd)}
-                {#if o}
-                  {@const total = bd.authors.reduce((n, a) => n + a.commits, 0)}
-                  <dt class="text-muted-foreground">Owner</dt>
-                  <dd class="flex items-center gap-1.5">
-                    <AuthorStack authors={bd.authors} />
-                    {o.name}
-                    <span class="text-muted-foreground tabular-nums">
-                      {o.commits} of {total} commits ({Math.round((100 * o.commits) / total)}%)
-                    </span>
-                  </dd>
-                {/if}
-              {/if}
-              {#if w.headDate}
-                <dt class="text-muted-foreground">Last commit</dt>
-                <dd>
-                  <span class={cn(stale && 'text-dirty')}>{ago(w.headDate)}</span>
-                  <span class="text-[11px] text-muted-foreground italic">
-                    {new Date(w.headDate * 1000).toLocaleDateString()}
-                  </span>
-                  <span class="mt-0.5 line-clamp-2 block">
-                    <span class="font-mono text-[11px] text-muted-foreground"
-                      >{w.head.slice(0, 8)}</span
-                    >
-                    {w.headSubject}
-                  </span>
-                </dd>
-              {/if}
-              <dt class="text-muted-foreground">Changes</dt>
-              <dd>
-                {#if w.prunable}
-                  <span class="text-destructive">Folder missing: right-click to prune</span>
-                {:else if s?.changes}
-                  <span class="text-dirty">{plural(s.changes, 'uncommitted change')}</span>
-                  <span class="block text-muted-foreground">Click the chip to see them</span>
-                {:else}
-                  Clean
-                {/if}
-              </dd>
-              {#if !w.prunable}
-                <dt class="text-muted-foreground">vs {app.data?.compare?.base ?? 'base'}</dt>
-                <dd>
-                  {#if !d}
-                    <span class="flex items-center gap-1 text-muted-foreground">
-                      <LoaderCircle class="size-3 animate-spin" /> comparing…
-                    </span>
-                  {:else if d.compare}
-                    {@const c = d.compare}
-                    {[
-                      c.ahead && `↑ ${plural(c.ahead, 'commit')} ahead`,
-                      c.behind && `↓ ${c.behind} behind`,
-                      c.same && `≡ ${c.same} copies`
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || 'Same as the base'}
-                    {#if c.mergeBaseDate}
-                      <span class="block text-muted-foreground">
-                        forked {ago(c.mergeBaseDate)}
-                      </span>
-                    {/if}
-                  {:else}
-                    <span class="text-muted-foreground">No base to compare with</span>
-                  {/if}
-                </dd>
-                {#if d?.compare?.rewritten}
-                  {@const c = d.compare}
-                  <dd
-                    class="col-span-2 rounded-sm border border-dirty/40 bg-dirty/10 px-1.5 py-1 text-dirty"
-                  >
-                    <span class="flex items-center gap-1 font-semibold">
-                      <TriangleAlert class="size-3.5" /> Rewritten history
-                    </span>
-                    {c.same} of its commits are copies of commits on {c.base}, and the two histories {c.mergeBaseDate
-                      ? `only meet ${ago(c.mergeBaseDate)}`
-                      : 'never meet'}: one side was rewritten (filter-repo, a forced rebase). The
-                    ahead and behind counts are mostly noise: rather than merging, start a fresh
-                    branch from {c.base}
-                    and bring the changes over.
-                  </dd>
-                {/if}
-              {/if}
-              {#if s}
-                <dt class="text-muted-foreground">Upstream</dt>
-                <dd>
-                  {#if !s.upstream}
-                    Not pushed yet
-                  {:else}
-                    {[
-                      s.ahead && `↑ ${plural(s.ahead, 'commit')} to push`,
-                      s.behind && `↓ ${plural(s.behind, 'commit')} to pull`
-                    ]
-                      .filter(Boolean)
-                      .join(' · ') || 'In sync'}
-                    <span class="block font-mono text-[11px] text-muted-foreground">
-                      {s.upstream}
-                    </span>
-                  {/if}
-                </dd>
-              {/if}
-              <dt class="text-muted-foreground">Folder</dt>
-              <dd class="font-mono text-[11px] text-muted-foreground">{w.path}</dd>
-            </dl>
-            <p class="border-t pt-1.5 text-[11px] text-muted-foreground">
-              Click: its uncommitted changes · Double-click: open in a new window · Right-click:
-              more
-            </p>
+            <RefCard
+              {r}
+              worktree={w}
+              footer="Click: show it in the graph, with its uncommitted changes and their diffs · Double-click: open in a new window · Right-click: more"
+            />
           {/snippet}
           <Tip content={details}>
             {#snippet children(trigger)}
@@ -282,7 +190,7 @@
                   oncontextmenu: (e: MouseEvent) => open(e, worktreeItems(w))
                 })}
                 class={cn(
-                  'flex h-6 max-w-80 shrink-0 items-center gap-1.5 rounded-sm border px-2 hover:bg-accent data-menu-open:bg-accent',
+                  'flex h-6 max-w-[28rem] shrink-0 items-center gap-1.5 rounded-sm border px-2 hover:bg-accent data-menu-open:bg-accent',
                   w.current && 'border-ring',
                   app.worktreeDetails[w.path]?.compare?.rewritten && 'border-dirty'
                 )}
@@ -297,17 +205,35 @@
                   <FolderGit2 class="size-3.5 shrink-0" />
                 {/if}
                 <span class={cn('truncate', w.current && 'font-semibold')}>{folder(w.path)}</span>
-                <span class="truncate text-muted-foreground">
-                  {w.branch ?? `detached ${w.head.slice(0, 7)}`}
-                </span>
+                {#if w.branch}
+                  <span class="truncate text-muted-foreground">{w.branch}</span>
+                {:else}
+                  <!-- Detached: on a commit, not a branch (the card has the hash, to copy) -->
+                  <GitCommitHorizontal class="size-3.5 shrink-0 text-muted-foreground" />
+                {/if}
                 {#if w.prunable}
                   <span class="text-destructive">missing</span>
                 {:else if w.status}
-                  <WorktreeState status={w.status} />
+                  <WorktreeState status={w.status} sync={false} />
                 {/if}
+                <!-- What its branch's chip shows: ↑↓ vs the base, the cloud, its pull request -->
+                <BranchState
+                  {r}
+                  vs={app.worktreeDetails[w.path]?.compare}
+                  cloud={!!w.branch && r.ref.name === w.branch}
+                />
+                {#if pr && (pr.state === 'open' || pr.state === 'draft')}<PullBadge {pr} />{/if}
                 {#if w.branch && owner(app.branchDetails[w.branch])}
                   {@const o = owner(app.branchDetails[w.branch])!}
                   <AuthorAvatar name={o.name} email={o.email} />
+                {/if}
+                {#if isDisposable(w, app.worktreeDetails[w.path] ?? undefined, app.filterContext)}
+                  <Recycle class="size-3.5 shrink-0 text-muted-foreground" />
+                {/if}
+                {#if w.headDate}
+                  <span class="shrink-0 text-muted-foreground tabular-nums"
+                    >{since(w.headDate)}</span
+                  >
                 {/if}
               </button>
             {/snippet}

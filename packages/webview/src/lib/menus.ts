@@ -337,6 +337,8 @@ export function menuItems(target: MenuTarget): MenuItem[] {
       }
     ];
   }
+  if (commit.worktree)
+    return worktreeItems(app.data?.worktrees.find((w) => w.path === commit.worktree));
   const stash = commit.refs.find((r) => r.kind === 'stash');
   if (stash) return stashItems(commit, stash.name);
 

@@ -17,11 +17,17 @@ const graph = await git.getGraph({
   base: null,
   focus: [],
   showRemotes: true,
+  showTags: true,
+  showStashes: true,
   maxCommits: 600
 });
 const details = Object.fromEntries(
   await Promise.all(
-    graph.commits.slice(0, 60).map(async (c) => [c.hash, await git.getDetails(dir, c)] as const)
+    // Other worktrees' Uncommitted Changes rows show that worktree's files, not commit details
+    graph.commits
+      .filter((c) => !c.worktree)
+      .slice(0, 60)
+      .map(async (c) => [c.hash, await git.getDetails(dir, c)] as const)
   )
 );
 // What each worktree card loads on hover

@@ -1,8 +1,14 @@
 <script lang="ts">
-  import { DEFAULT_VIEW, UNCOMMITTED, type Column, type Commit } from '@treeline/shared';
+  import {
+    DEFAULT_VIEW,
+    isUncommitted,
+    type Column,
+    type Commit,
+    type Worktree
+  } from '@treeline/shared';
   import { LoaderCircle } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
-  import { menuItems } from '$lib/menus';
+  import { menuItems, worktreeItems } from '$lib/menus';
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
   import AuthorAvatar from './AuthorAvatar.svelte';
@@ -20,6 +26,22 @@
       )
     )
   );
+  /**
+   * Worktrees on a detached HEAD, by commit: no branch badge marks them, so the folder gets one (a
+   * branch checked out in a worktree shows it on its own badge).
+   */
+  const detachedAt = $derived.by(() => {
+    const at = new Map<string, Worktree[]>();
+    // A worktree's Uncommitted Changes row carries its folder badge: not its commit too
+    const withRow = new Set(commits.flatMap((c) => (c.worktree ? [c.worktree] : [])));
+    for (const w of app.data?.worktrees ?? [])
+      if (!w.branch && !w.prunable && !withRow.has(w.path))
+        at.set(w.head, [...(at.get(w.head) ?? []), w]);
+    return at;
+  });
+  /** The worktree an Uncommitted Changes row belongs to (another worktree's). */
+  const worktreeOf = (path: string | undefined) =>
+    path ? app.data?.worktrees.filter((w) => w.path === path) : undefined;
   const gw = $derived(graphWidth(app.graph.width));
   // Graph and Description are always there; Description takes whatever the others leave
   const graphW = $derived(app.view.widths.graph ?? Math.min(gw, 320));
@@ -99,6 +121,18 @@
     {/each}
   </div>
 
+  {#if app.working}
+    <!-- A reload you asked for: say what it's doing over the list it will replace -->
+    <div class="pointer-events-none sticky top-7 z-20 flex h-0 justify-center">
+      <span
+        class="flex h-7 items-center gap-1.5 rounded-full border bg-popover px-3 text-xs text-popover-foreground shadow-md"
+      >
+        <LoaderCircle class="size-3.5 animate-spin" />
+        {app.working.text}
+      </span>
+    </div>
+  {/if}
+
   {#if !app.data && !app.error}
     <!-- First load: the shape of what's coming, rather than an empty page -->
     <div aria-busy="true" aria-label="Loading the history">
@@ -134,7 +168,7 @@
 
   <ActionMenu>
     {#snippet children(open)}
-      <div class="relative">
+      <div class={cn('relative transition-opacity', app.working && 'opacity-40')}>
         <!-- Drawn over the rows: clicks go through to them -->
         <div
           class="pointer-events-none absolute inset-y-0 left-0 overflow-hidden"
@@ -157,12 +191,10 @@
             data-hash={c.hash}
             class={cn(
               'grid cursor-default text-[13px] hover:bg-accent data-menu-open:bg-accent',
-              c.side === 'ahead' && 'bg-ahead/10',
-              c.side === 'behind' && 'bg-behind/10',
               c.side === 'same' && 'text-muted-foreground',
               isSelected && 'bg-selection text-selection-foreground hover:bg-selection',
               app.find && !isMatch && 'opacity-45',
-              c.hash === UNCOMMITTED && 'italic'
+              isUncommitted(c) && 'italic'
             )}
             style="grid-template-columns: {cols}; height: {ROW}px; {c.side
               ? `box-shadow: inset 3px 0 0 var(--${c.side})`
@@ -201,6 +233,29 @@
                   />
                 </span>
               {/each}
+              {#each worktreeOf(c.worktree) ?? detachedAt.get(c.hash) ?? [] as w (w.path)}
+                {@const folder = w.path.split(/[\\/]/).pop()!}
+                <span
+                  class="contents"
+                  role="presentation"
+                  oncontextmenu={(e) => open(e, worktreeItems(w))}
+                >
+                  <RefBadge
+                    ref={{ kind: 'head', name: folder, worktree: w.path }}
+                    card={{
+                      ref: { kind: 'head', name: folder },
+                      hash: w.head,
+                      date: w.headDate ?? 0,
+                      subject: w.headSubject ?? ''
+                    }}
+                    detached
+                    color={laneColor(row.color)}
+                    current={w.current}
+                    busy={app.isRunning(w.path)}
+                    status={w.status}
+                  />
+                </span>
+              {/each}
               {#if c.hash === app.data?.compare?.mergeBase}
                 <span
                   class="shrink-0 rounded-sm border border-dashed px-1 text-[11px] leading-4 text-muted-foreground"
@@ -230,7 +285,7 @@
                 {#if app.isRunning(c.hash)}
                   <LoaderCircle class="size-3 animate-spin" />
                 {:else}
-                  <span class="truncate">{c.hash === UNCOMMITTED ? '*' : c.hash.slice(0, 8)}</span>
+                  <span class="truncate">{isUncommitted(c) ? '*' : c.hash.slice(0, 8)}</span>
                 {/if}
               </div>
             {/if}

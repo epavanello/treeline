@@ -1,6 +1,7 @@
 import { tick } from 'svelte';
 import {
   DEFAULT_VIEW,
+  isUncommitted,
   UNCOMMITTED,
   type Action,
   type BranchDetails,
@@ -8,6 +9,7 @@ import {
   type CommitDetails,
   type FileChange,
   type GraphData,
+  type GraphQuery,
   type PullRequests,
   type Ref,
   type RefSummary,
@@ -48,6 +50,8 @@ interface RepoView {
   hidden: string[];
   authors: string[];
   showRemotes: boolean;
+  showTags: boolean;
+  showStashes: boolean;
   base: string | null;
   branchFilter: BranchFilter;
   worktreeFilter: WorktreeFilter;
@@ -64,6 +68,9 @@ class App {
   /** Every author seen in this repo's loaded commits, for the author filter. */
   knownAuthors = $state<string[]>([]);
   showRemotes = $state(true);
+  /** Tag badges in the graph (the Tags row is a row of its own, shown or not from View). */
+  showTags = $state(true);
+  showStashes = $state(true);
   maxCommits = $state(PAGE);
   /** Branch HEAD is compared with; null = the host's default (origin/HEAD, main…). */
   base = $state<string | null>(null);
@@ -121,8 +128,33 @@ class App {
   });
   /** A context menu is open: tooltips stay hidden meanwhile (see ActionMenu, Tip). */
   menuOpen = $state(false);
+  /**
+   * What a reload you asked for is busy with (a filter changed, a commit being looked up): the list
+   * dims under it. Reloads after changes on disk stay quiet.
+   */
+  // Raw: replaced whole, and compared by identity (a proxy would never equal the object set)
+  working = $state.raw<{ text: string } | null>(null);
+
+  /** Reloads after a filter changed, showing it (see `working`). */
+  private async reload(text = 'Applying the filters…') {
+    const token = { text };
+    this.working = token;
+    try {
+      await this.refresh();
+    } finally {
+      if (this.working === token) this.working = null;
+    }
+  }
+
   /** A short-lived message under the toolbar (see `flash`). */
-  notice = $state<string | null>(null);
+  // Raw, like `working`: `flash` compares it by identity to know it's still its own
+  notice = $state.raw<{
+    text: string;
+    /** A button that does something about it ("Show it"); such a notice stays until used or closed. */
+    action?: { label: string; run: () => unknown };
+    /** Something is loading meanwhile. */
+    busy?: boolean;
+  } | null>(null);
   /** `actionTarget`s of the actions whose git commands are running (host `busy` events). */
   running = $state<string[]>([]);
 
@@ -144,8 +176,9 @@ class App {
   });
 
   flash(message: string) {
-    this.notice = message;
-    setTimeout(() => this.notice === message && (this.notice = null), 5000);
+    const notice = { text: message };
+    this.notice = notice;
+    setTimeout(() => this.notice === notice && (this.notice = null), 5000);
   }
 
   /**
@@ -153,19 +186,72 @@ class App {
    * (doubling the page each time, up to 20k commits).
    */
   async reveal(hash: string) {
-    const find = () => this.data?.commits.find((c) => c.hash === hash);
-    while (!find() && this.data?.hasMore && this.maxCommits < 20_000) {
-      this.maxCommits *= 2;
-      await this.refresh();
+    let commit = this.data?.commits.find((c) => c.hash === hash);
+    if (!commit && this.repo) {
+      // Ask where it is first: it may be thousands of commits down, or hidden by a filter
+      const finding = { text: 'Finding that commit…' };
+      this.working = finding;
+      const where = await host.locate(this.query(), hash).catch(() => null);
+      if (this.working === finding) this.working = null;
+      if (where && 'hidden' in where) return this.hiddenCommit(hash, where.hidden);
+      if (where && where.at >= this.maxCommits) {
+        // Load that far in one go (and a page past it), saying so
+        const target = (Math.floor(where.at / PAGE) + 2) * PAGE;
+        this.maxCommits = target;
+        await this.reload(
+          `Loading the history down to that commit: ${target.toLocaleString()} commits…`
+        );
+      }
+      commit = this.data?.commits.find((c) => c.hash === hash);
     }
-    const commit = find();
-    if (!commit)
-      return this.flash(
-        "That commit isn't in the graph: the branch, author or ↑↓ filters hide it."
-      );
+    if (!commit) return this.flash("That commit isn't in the graph.");
     void this.select(commit);
     await tick();
     this.scrollTo(hash);
+  }
+
+  /** A commit to reveal that the graph leaves out: say which filters do, and offer to lift them. */
+  private hiddenCommit(hash: string, byFilters: boolean) {
+    if (!byFilters)
+      return this.flash("No branch, tag or worktree has that commit: the graph can't show it.");
+    const active = [
+      this.authors.length && `the author filter (${this.authors.length})`,
+      this.branches.length && `the branches shown (${this.branches.length})`,
+      this.hidden.length && `hidden branches (${this.hidden.length})`,
+      this.focus.length && 'the ↑↓ filter',
+      !this.showRemotes && 'remote branches being off',
+      !this.showTags && 'tags being off'
+    ].filter(Boolean);
+    this.notice = {
+      text: `That commit is hidden by ${active.join(', ').replace(/, ([^,]*)$/, ' and $1') || 'the filters'}.`,
+      action: {
+        label: 'Show it',
+        run: async () => {
+          [this.authors, this.branches, this.hidden, this.focus] = [[], [], [], []];
+          this.showRemotes = this.showTags = true;
+          this.maxCommits = PAGE;
+          this.notice = null;
+          await this.refresh();
+          await this.reveal(hash);
+        }
+      }
+    };
+  }
+
+  /** The graph as filtered now (what `refresh` loads). */
+  private query(): GraphQuery {
+    return {
+      repo: this.repo!,
+      branches: $state.snapshot(this.branches),
+      hidden: $state.snapshot(this.hidden),
+      authors: $state.snapshot(this.authors),
+      showRemotes: this.showRemotes,
+      showTags: this.showTags,
+      showStashes: this.showStashes,
+      maxCommits: this.maxCommits,
+      base: this.base,
+      focus: $state.snapshot(this.focus)
+    };
   }
 
   /**
@@ -339,6 +425,8 @@ class App {
       hidden: this.hidden,
       authors: this.authors,
       showRemotes: this.showRemotes,
+      showTags: this.showTags,
+      showStashes: this.showStashes,
       base: this.base,
       branchFilter: this.branchFilter,
       worktreeFilter: this.worktreeFilter
@@ -351,6 +439,8 @@ class App {
     this.hidden = saved?.hidden ?? [];
     this.authors = saved?.authors ?? [];
     this.showRemotes = saved?.showRemotes ?? true;
+    this.showTags = saved?.showTags ?? true;
+    this.showStashes = saved?.showStashes ?? true;
     this.base = saved?.base ?? null;
     this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter };
     this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter };
@@ -379,16 +469,7 @@ class App {
     const seq = ++this.loadSeq;
     this.loading = true;
     try {
-      const data = await host.getGraph({
-        repo: this.repo,
-        branches: $state.snapshot(this.branches),
-        hidden: $state.snapshot(this.hidden),
-        authors: $state.snapshot(this.authors),
-        showRemotes: this.showRemotes,
-        maxCommits: this.maxCommits,
-        base: this.base,
-        focus: $state.snapshot(this.focus)
-      });
+      const data = await host.getGraph(this.query());
       if (seq !== this.loadSeq) return;
       // Side filters belong to one comparison: reset them when the branch changed (a checkout),
       // and drop a side that has no commits left (e.g. ahead after a rebase), then reload
@@ -413,15 +494,19 @@ class App {
       void this.preloadWorktreeDetails(data);
       void this.preloadBranchDetails(data);
       void this.loadPulls();
-      const seen = data.commits.filter((c) => c.hash !== UNCOMMITTED).map((c) => c.author);
+      const seen = data.commits.filter((c) => !isUncommitted(c)).map((c) => c.author);
       this.knownAuthors = [...new Set([...this.knownAuthors, ...this.authors, ...seen])].sort(
         (a, b) => a.localeCompare(b)
       );
       // Keep what the details panel shows up to date
       if (this.worktreePanel) {
         const still = data.worktrees.find((w) => w.path === this.worktreePanel!.worktree.path);
-        if (still) void this.openWorktree(still);
-        else this.closeDetails();
+        // Its row: still there while it has changes (selected again, as the new object it is now)
+        const row = data.commits.find((c) => c.worktree === still?.path);
+        if (still && (row || !this.selected?.worktree)) {
+          if (row) this.selected = row;
+          void this.showWorktreeChanges(still);
+        } else this.closeDetails();
       } else if (this.branchDiff) void this.openBranchDiff();
       else if (this.selected) {
         const still = data.commits.find((c) => c.hash === this.selected!.hash);
@@ -451,7 +536,7 @@ class App {
     // A branch can't be both shown on purpose and hidden
     this.hidden = this.hidden.filter((b) => !branches.includes(b));
     this.maxCommits = PAGE;
-    void this.refresh();
+    void this.reload();
   }
 
   /** Hide a branch from "all", or bring it back. */
@@ -461,7 +546,7 @@ class App {
       : [...this.hidden, name];
     this.branches = this.branches.filter((b) => b !== name);
     this.maxCommits = PAGE;
-    void this.refresh();
+    void this.reload();
   }
 
   /** Back to every branch: nothing picked, nothing hidden. */
@@ -473,14 +558,14 @@ class App {
   setAuthors(authors: string[]) {
     this.authors = authors;
     this.maxCommits = PAGE;
-    void this.refresh();
+    void this.reload();
   }
 
   setBase(base: string | null) {
     this.base = base;
     this.maxCommits = PAGE;
     if (this.branchDiff) this.branchDiff = null;
-    void this.refresh();
+    void this.reload();
   }
 
   /** Show (or stop showing) only one side of the divergence: ahead, behind, same. */
@@ -489,12 +574,13 @@ class App {
       ? this.focus.filter((s) => s !== side)
       : [...this.focus, side];
     this.maxCommits = PAGE;
-    void this.refresh();
+    void this.reload();
   }
 
   /**
-   * A worktree's uncommitted changes in the details panel; for the worktree this graph shows, its
-   * Uncommitted Changes row.
+   * A worktree's chip was clicked: like a branch's, its commit in the graph, selected; and when it
+   * has uncommitted changes, those in the details panel (for the worktree this graph shows, its
+   * Uncommitted Changes row).
    */
   async openWorktree(w: Worktree) {
     if (w.current) {
@@ -502,9 +588,21 @@ class App {
       if (row) return this.select(row);
       return this.reveal(w.head);
     }
+    await this.reveal(w.head);
+    // With changes: its Uncommitted Changes row, right above the commit
+    const row = this.data?.commits.find((c) => c.worktree === w.path);
+    if (row) {
+      void this.select(row);
+      await tick();
+      this.scrollTo(row.hash);
+    }
+  }
+
+  /** A worktree's uncommitted files in the details panel; its commit stays selected in the graph. */
+  async showWorktreeChanges(w: Worktree) {
     const details = await host.getWorktreeDetails(w.path, this.data?.compare?.base ?? this.base);
     this.worktreeDetails[w.path] = details;
-    this.selected = this.compareWith = this.details = this.compareFiles = this.branchDiff = null;
+    this.compareWith = this.details = this.compareFiles = this.branchDiff = null;
     this.worktreePanel = { worktree: w, files: details.files };
   }
 
@@ -522,7 +620,20 @@ class App {
     void host.setView($state.snapshot(this.view));
   }
 
+  setShowTags(show: boolean) {
+    if (this.showTags === show) return;
+    this.showTags = show;
+    void this.reload();
+  }
+
+  setShowStashes(show: boolean) {
+    if (this.showStashes === show) return;
+    this.showStashes = show;
+    void this.reload();
+  }
+
   setShowRemotes(show: boolean) {
+    if (this.showRemotes === show) return;
     this.showRemotes = show;
     this.branches = this.branches.filter((b) => show || this.data?.branches.includes(b));
     void this.refresh();
@@ -530,7 +641,14 @@ class App {
 
   async select(commit: Commit, compare = false) {
     if (!this.repo) return;
-    if (compare && this.selected && this.selected.hash !== commit.hash) {
+    if (commit.worktree) {
+      // Another worktree's uncommitted changes: its files, diffed in its own folder
+      const w = this.data?.worktrees.find((x) => x.path === commit.worktree);
+      this.selected = commit;
+      if (w) await this.showWorktreeChanges(w);
+      return;
+    }
+    if (compare && this.selected && !this.selected.worktree && this.selected.hash !== commit.hash) {
       this.compareWith = commit;
       // Older commit first; UNCOMMITTED is always the newest side.
       const commits = this.data!.commits;

@@ -22,7 +22,7 @@
 </script>
 
 <script lang="ts">
-  import { UNCOMMITTED, type Commit } from '@treeline/shared';
+  import { isUncommitted, type Commit } from '@treeline/shared';
   import type { Edge, Layout } from '$lib/graph';
 
   let { graph, commits, head }: { graph: Layout; commits: Commit[]; head: string | null } =
@@ -71,7 +71,7 @@
   {/each}
   {#each graph.rows as row, i (i)}
     {@const c = commits[i]}
-    {@const hollow = c.hash === UNCOMMITTED || c.hash === head || !!c.stashBase}
+    {@const hollow = isUncommitted(c) || c.hash === head || !!c.stashBase}
     {#if c.stashBase}
       <rect
         x={laneX(row.lane) - 4}
@@ -90,7 +90,7 @@
         fill={hollow ? 'var(--background)' : laneColor(row.color)}
         stroke={laneColor(row.color)}
         stroke-width="2"
-        stroke-dasharray={c.hash === UNCOMMITTED ? '2 2' : undefined}
+        stroke-dasharray={isUncommitted(c) ? '2 2' : undefined}
       />
     {/if}
   {/each}

@@ -66,6 +66,7 @@ export class GraphPanel {
       getRepos: () => repos.list(),
       getGraph: (q) => timed(`graph of ${path.basename(q.repo)}`, git.getGraph(q)),
       getDetails: (repo, commit) => git.getDetails(repo, commit),
+      locate: (q, hash) => git.locate(q, hash),
       compare: (repo, from, to) => git.compare(repo, from, to),
       getWorktreeDetails: (path, base) => git.worktreeDetails(path, base),
       getBranchDetails: (repo, refs, base) => branchDetails.get(repo, refs, base),
