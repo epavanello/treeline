@@ -32,8 +32,27 @@ const worktreeDetails = Object.fromEntries(
       .map(async (w) => [w.path, await git.worktreeDetails(w.path, graph.compare?.base ?? null)])
   )
 );
+// What the branch rows and cards load after each graph load
+const base = graph.compare?.base;
+const branchDetails = base
+  ? Object.fromEntries(
+      await Promise.all(
+        [...graph.heads, ...graph.remoteHeads].map(
+          async (r) =>
+            [
+              r.ref.name,
+              await git.branchDetails(
+                dir,
+                `refs/${r.ref.kind === 'head' ? 'heads' : 'remotes'}/${r.ref.name}`,
+                base
+              )
+            ] as const
+        )
+      )
+    )
+  : {};
 writeFileSync(
   new URL('../../webview/preview/fixture.json', import.meta.url),
-  JSON.stringify({ repo: dir, graph, details, worktreeDetails }, null, 2)
+  JSON.stringify({ repo: dir, graph, details, worktreeDetails, branchDetails }, null, 2)
 );
 console.log(`wrote ${graph.commits.length} commits`);

@@ -4,12 +4,17 @@ import type { HostApi, HostEvent, RpcRequest, RpcResponse } from '@treeline/shar
 import { DEFAULT_VIEW, type Action, type ViewSettings } from '@treeline/shared';
 import { openFolder } from './actions';
 import { openDiff, revisionUri } from './diff';
+import type { BranchDetailsCache } from './branchDetails';
 import type { Git } from './git';
+import type { Pulls } from './pulls';
 import type { Repos } from './repos';
 
 export interface Services {
   git: Git;
   repos: Repos;
+  pulls: Pulls;
+  branchDetails: BranchDetailsCache;
+  log: vscode.LogOutputChannel;
   /** Runs an action, showing it as busy, then reloads the graph. */
   run: (repo: string, action: Action) => Promise<void>;
   commitMessage: (repo: string) => Promise<void>;
@@ -33,6 +38,8 @@ export class GraphPanel {
       }
     );
     GraphPanel.current = new GraphPanel(ctx, panel, services);
+    // Its editor group stays the graph's: files and diffs opened from it go to the group beside
+    void vscode.commands.executeCommand('workbench.action.lockEditorGroup');
   }
 
   static post(event: HostEvent) {
@@ -42,17 +49,34 @@ export class GraphPanel {
   private constructor(
     ctx: vscode.ExtensionContext,
     private readonly panel: vscode.WebviewPanel,
-    { git, repos, run, commitMessage }: Services
+    { git, repos, pulls, branchDetails, log, run, commitMessage }: Services
   ) {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'resources', 'icon.svg');
     panel.webview.html = html(panel.webview, ctx.extensionUri);
 
+    /** Logs what took a second or more. */
+    const timed = async <T>(what: string, work: Promise<T>) => {
+      const started = Date.now();
+      const result = await work;
+      const ms = Date.now() - started;
+      if (ms >= 1000) log.info(`${what}: ${ms} ms`);
+      return result;
+    };
     const api: HostApi = {
       getRepos: () => repos.list(),
-      getGraph: (q) => git.getGraph(q),
+      getGraph: (q) => timed(`graph of ${path.basename(q.repo)}`, git.getGraph(q)),
       getDetails: (repo, commit) => git.getDetails(repo, commit),
       compare: (repo, from, to) => git.compare(repo, from, to),
       getWorktreeDetails: (path, base) => git.worktreeDetails(path, base),
+      getBranchDetails: (repo, refs, base) => branchDetails.get(repo, refs, base),
+      log: async (message) => log.info(message),
+      getPullRequests: (repo, fresh) =>
+        timed(`pull requests of ${path.basename(repo)}`, pulls.get(repo, fresh)),
+      connectGitHub: (repo) => pulls.get(repo, true, true),
+      openUrl: async (url) => {
+        // Only web pages: the URL comes from the webview
+        if (/^https:\/\//.test(url)) await vscode.env.openExternal(vscode.Uri.parse(url));
+      },
       run,
       openDiff: async (target) => void (await openDiff(git, target)),
       generateCommitMessage: commitMessage,
@@ -73,7 +97,21 @@ export class GraphPanel {
           widths: { ...DEFAULT_VIEW.widths, ...saved.widths }
         };
       },
-      setView: async (view) => void (await ctx.globalState.update('view', view))
+      setView: async (view) => void (await ctx.globalState.update('view', view)),
+      getRepoView: async (repo) => {
+        const key = await git.commonDir(repo);
+        return (
+          (key &&
+            ctx.globalState.get<Record<string, Record<string, unknown>>>('repoViews')?.[key]) ||
+          null
+        );
+      },
+      setRepoView: async (repo, view) => {
+        const key = await git.commonDir(repo);
+        if (!key) return;
+        const all = ctx.globalState.get<Record<string, Record<string, unknown>>>('repoViews') ?? {};
+        await ctx.globalState.update('repoViews', { ...all, [key]: view });
+      }
     };
 
     panel.webview.onDidReceiveMessage(
@@ -83,6 +121,7 @@ export class GraphPanel {
           reply.result = await (api[method] as (...a: unknown[]) => Promise<unknown>)(...args);
         } catch (e) {
           reply.error = (e as Error).message;
+          log.warn(`${method} failed: ${reply.error}`);
         }
         void panel.webview.postMessage(reply);
       },

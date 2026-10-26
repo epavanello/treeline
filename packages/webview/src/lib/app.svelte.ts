@@ -2,29 +2,55 @@ import { tick } from 'svelte';
 import {
   DEFAULT_VIEW,
   UNCOMMITTED,
+  type Action,
+  type BranchDetails,
   type Commit,
   type CommitDetails,
   type FileChange,
   type GraphData,
+  type PullRequests,
+  type Ref,
+  type RefSummary,
   type Repo,
   type Side,
   type Worktree,
   type WorktreeDetails,
   type ViewSettings
 } from '@treeline/shared';
+import {
+  branchRows,
+  DEFAULT_BRANCH_FILTER,
+  DEFAULT_WORKTREE_FILTER,
+  type BranchFilter,
+  type BranchRow,
+  type Context,
+  type WorktreeFilter
+} from './filters';
 import { layout } from './graph';
 import { host, onHostEvent, vscode } from './rpc';
 
 const PAGE = 300;
+/** Branches per host call for their details (see preloadBranchDetails). */
+const BATCH = 40;
 
+/** What this panel remembers: which repository, and the ↑↓ filters of its current comparison. */
 interface Persisted {
   repo?: string;
-  branches?: string[];
-  hidden?: string[];
-  authors?: string[];
-  showRemotes?: boolean;
-  base?: string | null;
   focus?: Side[];
+}
+
+/**
+ * How a repository's graph is set up, remembered by the extension for the repository itself: every
+ * worktree and window of it opens with the same hidden branches, filters and base.
+ */
+interface RepoView {
+  branches: string[];
+  hidden: string[];
+  authors: string[];
+  showRemotes: boolean;
+  base: string | null;
+  branchFilter: BranchFilter;
+  worktreeFilter: WorktreeFilter;
 }
 
 /** All webview state in one place. Components read it directly. */
@@ -63,6 +89,36 @@ class App {
   view = $state<ViewSettings>(structuredClone(DEFAULT_VIEW));
   /** Worktree cards' comparison and uncommitted files, by path: loaded on hover, `null` while loading. */
   worktreeDetails = $state<Record<string, WorktreeDetails | null>>({});
+  /**
+   * Branches' authors and merged state vs the compare base, by name, loaded one at a time after
+   * each load; `key` says which branch and base commits they were computed for.
+   */
+  branchDetails = $state<Record<string, BranchDetails & { key: string }>>({});
+  /** Branch details still being computed, while they are (the filters that need them may grow). */
+  branchProgress = $state<{ done: number; total: number } | null>(null);
+  loadingBranchDetails = $derived(!!this.branchProgress);
+  /** What the Branches and Worktrees rows show (see filters.ts). */
+  branchFilter = $state<BranchFilter>({ ...DEFAULT_BRANCH_FILTER });
+  worktreeFilter = $state<WorktreeFilter>({ ...DEFAULT_WORKTREE_FILTER });
+  /** The repository's pull requests on GitHub, or why there are none; null until asked. */
+  pulls = $state<PullRequests | null>(null);
+  /** Every branch once, local and remote copies together (see filters.ts). */
+  rows = $derived(this.data ? branchRows(this.data) : []);
+  /** Each branch's row by name, local or remote: what it is paired with. */
+  rowOf = $derived(
+    new Map(
+      this.rows.flatMap((row) =>
+        [row.local, row.remote].flatMap((r) => (r ? [[r.ref.name, row] as const] : []))
+      )
+    ) as Map<string, BranchRow>
+  );
+  filterContext = $derived<Context>({
+    details: this.branchDetails,
+    pulls: this.pulls?.status === 'ok' ? this.pulls.prs : [],
+    user: this.data?.user ?? null,
+    base: this.data?.compare?.base,
+    now: Date.now() / 1000
+  });
   /** A context menu is open: tooltips stay hidden meanwhile (see ActionMenu, Tip). */
   menuOpen = $state(false);
   /** A short-lived message under the toolbar (see `flash`). */
@@ -131,6 +187,84 @@ class App {
     }
   }
 
+  /**
+   * Every branch's authors and merged state, the Branches row's scope first, in batches the host
+   * computes in parallel (and keeps across sessions); a branch is asked again only when it or the
+   * base moved. One update per batch, so the rows redraw a few times, not once per branch.
+   */
+  private async preloadBranchDetails(data: GraphData) {
+    const seq = this.loadSeq;
+    const [repo, c] = [this.repo, data.compare];
+    if (!repo || !c) return void (this.branchProgress = null);
+    const key = (r: RefSummary) => `${r.hash} ${c.baseHash}`;
+    const full = (r: RefSummary) =>
+      `refs/${r.ref.kind === 'head' ? 'heads' : 'remotes'}/${r.ref.name}`;
+    const first = this.branchFilter.scope === 'remote' ? 'remote' : 'head';
+    const todo = [...data.heads, ...data.remoteHeads]
+      .filter((r) => this.branchDetails[r.ref.name]?.key !== key(r))
+      .sort((a, b) => +(b.ref.kind === first) - +(a.ref.kind === first));
+    if (!todo.length) return void (this.branchProgress = null);
+    const started = Date.now();
+    this.branchProgress = { done: 0, total: todo.length };
+    for (let i = 0; i < todo.length; i += BATCH) {
+      if (seq !== this.loadSeq) return;
+      const batch = todo.slice(i, i + BATCH);
+      const got = await host
+        .getBranchDetails(
+          repo,
+          batch.map((r) => ({ ref: full(r), key: key(r) })),
+          c.base
+        )
+        .catch(() => ({}) as Record<string, BranchDetails>);
+      if (seq !== this.loadSeq) return;
+      const next = { ...this.branchDetails };
+      for (const r of batch) if (got[full(r)]) next[r.ref.name] = { key: key(r), ...got[full(r)] };
+      this.branchDetails = next;
+      this.branchProgress = { done: Math.min(i + BATCH, todo.length), total: todo.length };
+    }
+    this.branchProgress = null;
+    void host.log(`branch details: ${todo.length} branches in ${Date.now() - started} ms`);
+  }
+
+  /**
+   * Runs an action, then reloads the graph. The host asks for a reload too; this one doesn't depend
+   * on that message arriving, so what the action changed always shows.
+   */
+  async run(action: Action) {
+    if (!this.repo) return;
+    try {
+      await host.run(this.repo, action);
+    } finally {
+      void this.refresh();
+    }
+  }
+
+  /** Asks the host for the pull requests: cached there for a minute, so cheap after every load. */
+  async loadPulls(fresh = false) {
+    const repo = this.repo;
+    if (!repo) return;
+    const pulls = await host.getPullRequests(repo, fresh).catch(() => null);
+    if (repo === this.repo) this.pulls = pulls;
+  }
+
+  /** Signs in with the editor's GitHub account (it asks for consent), then shows them. */
+  async connectGitHub() {
+    const repo = this.repo;
+    if (!repo) return;
+    const pulls = await host.connectGitHub(repo);
+    if (repo === this.repo) this.pulls = pulls;
+  }
+
+  setBranchFilter(patch: Partial<BranchFilter>) {
+    this.branchFilter = { ...this.branchFilter, ...patch };
+    this.persist();
+  }
+
+  setWorktreeFilter(patch: Partial<WorktreeFilter>) {
+    this.worktreeFilter = { ...this.worktreeFilter, ...patch };
+    this.persist();
+  }
+
   async loadWorktreeDetails(path: string) {
     if (path in this.worktreeDetails) return;
     this.worktreeDetails[path] = null;
@@ -140,6 +274,16 @@ class App {
     } catch {
       delete this.worktreeDetails[path];
     }
+  }
+
+  /**
+   * A ref's name as badges, chips and lists show it: a remote branch without its remote (the
+   * cloud icon says it), which comes apart only when the repository has several.
+   */
+  refLabel(ref: Ref): { name: string; remote?: string } {
+    if (ref.kind !== 'remote' || !ref.remote) return { name: ref.name };
+    const name = ref.name.slice(ref.remote.length + 1);
+    return (this.data?.remotes.length ?? 0) > 1 ? { name, remote: ref.remote } : { name };
   }
 
   /** Whether an action is running on any of these targets (worktree path, ref name, hash…). */
@@ -154,14 +298,11 @@ class App {
 
   async init() {
     const saved = vscode.getState<Persisted>() ?? {};
-    this.branches = saved.branches ?? [];
-    this.hidden = saved.hidden ?? [];
-    this.authors = saved.authors ?? [];
-    this.showRemotes = saved.showRemotes ?? true;
-    this.base = saved.base ?? null;
     // Older saved state had a boolean here
     this.focus = Array.isArray(saved.focus) ? saved.focus : [];
     void host.getView().then((v) => (this.view = v));
+    // Pull requests change on GitHub, not on disk: ask again now and then while the graph is seen
+    setInterval(() => document.visibilityState === 'visible' && void this.loadPulls(), 60_000);
     await this.loadRepos(saved.repo);
     onHostEvent((e) => {
       if (e.event === 'refresh') void this.refresh();
@@ -179,31 +320,60 @@ class App {
     if (next !== this.repo) await this.setRepo(next);
   }
 
-  async setRepo(repo: string | null, keepFilters = false) {
+  async setRepo(repo: string | null) {
     this.repo = repo;
-    if (!keepFilters) {
-      [this.branches, this.hidden, this.authors, this.knownAuthors] = [[], [], [], []];
-      this.base = null;
-    }
+    this.knownAuthors = [];
+    this.applyRepoView(repo ? await host.getRepoView(repo).catch(() => null) : null);
+    if (repo !== this.repo) return; // another repository was picked meanwhile
     this.maxCommits = PAGE;
     this.closeDetails();
     this.data = null;
+    this.branchDetails = {};
+    this.pulls = null;
     await this.refresh();
   }
+
+  private repoView(): RepoView {
+    return $state.snapshot({
+      branches: this.branches,
+      hidden: this.hidden,
+      authors: this.authors,
+      showRemotes: this.showRemotes,
+      base: this.base,
+      branchFilter: this.branchFilter,
+      worktreeFilter: this.worktreeFilter
+    });
+  }
+
+  /** A repository's remembered setup (null: never opened, so the defaults). */
+  private applyRepoView(saved: Partial<RepoView> | null) {
+    this.branches = saved?.branches ?? [];
+    this.hidden = saved?.hidden ?? [];
+    this.authors = saved?.authors ?? [];
+    this.showRemotes = saved?.showRemotes ?? true;
+    this.base = saved?.base ?? null;
+    this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter };
+    this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter };
+    this.sentView = JSON.stringify(this.repoView());
+  }
+
+  /** The last setup sent to the host, so an unchanged one isn't written again on every load. */
+  private sentView = '';
 
   persist() {
     vscode.setState<Persisted>({
       repo: this.repo ?? undefined,
-      branches: $state.snapshot(this.branches),
-      hidden: $state.snapshot(this.hidden),
-      authors: $state.snapshot(this.authors),
-      showRemotes: this.showRemotes,
-      base: this.base,
       focus: $state.snapshot(this.focus)
     });
+    const view = this.repoView();
+    const json = JSON.stringify(view);
+    if (this.repo && json !== this.sentView) {
+      this.sentView = json;
+      void host.setRepoView(this.repo, { ...view });
+    }
   }
 
-  async refresh(): Promise<void> {
+  async refresh(retry = true): Promise<void> {
     if (!this.repo) return;
     this.persist();
     const seq = ++this.loadSeq;
@@ -231,9 +401,18 @@ class App {
           return this.refresh();
         }
       }
+      // Branches shown or hidden on purpose that were deleted since: forget them
+      const names = new Set([...data.heads, ...data.remoteHeads].map((r) => r.ref.name));
+      if (this.branches.some((b) => !names.has(b)) || this.hidden.some((b) => !names.has(b))) {
+        this.branches = this.branches.filter((b) => names.has(b));
+        this.hidden = this.hidden.filter((b) => names.has(b));
+        this.persist();
+      }
       this.data = data;
       this.error = null;
       void this.preloadWorktreeDetails(data);
+      void this.preloadBranchDetails(data);
+      void this.loadPulls();
       const seen = data.commits.filter((c) => c.hash !== UNCOMMITTED).map((c) => c.author);
       this.knownAuthors = [...new Set([...this.knownAuthors, ...this.authors, ...seen])].sort(
         (a, b) => a.localeCompare(b)
@@ -250,7 +429,12 @@ class App {
         else this.closeDetails();
       }
     } catch (e) {
-      if (seq === this.loadSeq) this.error = (e as Error).message;
+      if (seq !== this.loadSeq) return;
+      // Git may have been mid-change (refs being rewritten by another command): try once more
+      if (retry) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (seq === this.loadSeq) return this.refresh(false);
+      } else this.error = (e as Error).message;
     } finally {
       if (seq === this.loadSeq) this.loading = false;
     }

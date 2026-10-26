@@ -1,20 +1,48 @@
 import * as vscode from 'vscode';
 import { actionTarget, type Action } from '@treeline/shared';
 import { runAction } from './actions';
+import { BranchDetailsCache } from './branchDetails';
 import { fillCommitMessage } from './commitMessage';
 import { RevisionProvider, SCHEME } from './diff';
 import { Git } from './git';
 import { GraphPanel } from './panel';
+import { Pulls } from './pulls';
 import { getBuiltinGit, Repos } from './repos';
 
 export async function activate(ctx: vscode.ExtensionContext) {
   const builtin = await getBuiltinGit();
-  const git = new Git(builtin?.git.path ?? 'git');
+  // Timings and slow git commands, for diagnosing big repositories (View → Output → Treeline)
+  const log = vscode.window.createOutputChannel('Treeline', { log: true });
+  const git = new Git(builtin?.git.path ?? 'git', (args, ms) =>
+    log.info(`git ${args.join(' ').slice(0, 200)}: ${ms} ms`)
+  );
+  const branchDetails = new BranchDetailsCache(git, {
+    get: () => ctx.workspaceState.get('branchDetails'),
+    set: (value) => ctx.workspaceState.update('branchDetails', value)
+  });
   const refresh = () => GraphPanel.post({ event: 'refresh' });
   const repos = new Repos(git, builtin, refresh, () => GraphPanel.post({ event: 'repos' }));
+  // Pull requests: the gh CLI first; else the editor's GitHub account, silently once granted
+  const pulls = new Pulls(git, async (ask) => {
+    const scopes = ['repo'];
+    const session = await vscode.authentication.getSession(
+      'github',
+      scopes,
+      ask ? { createIfNone: true } : { silent: true }
+    );
+    return session?.accessToken;
+  });
+  // What changes the remote's branches, or what we know of them, makes pull requests worth asking again
+  const touchesRemote = new Set<Action['type']>([
+    'fetch',
+    'pushBranch',
+    'deleteRemoteBranch',
+    'deleteBranches'
+  ]);
   /** Every action goes through here: shown as busy once its prompts are answered, then a reload. */
   const run = async (repo: string, action: Action) => {
     const key = actionTarget(action);
+    const began = Date.now();
     let started = false;
     try {
       await runAction(git, repo, action, () => {
@@ -23,12 +51,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
       });
     } finally {
       if (started) GraphPanel.post({ event: 'busy', key, busy: false });
+      if (started && touchesRemote.has(action.type)) pulls.invalidate(repo);
+      if (started) log.info(`${action.type} ${key}: done in ${Date.now() - began} ms, reloading`);
       refresh();
     }
   };
   const services = {
     git,
     repos,
+    pulls,
+    branchDetails,
+    log,
     run,
     commitMessage: (repo: string) => fillCommitMessage(git, repo, builtin?.repositories ?? [])
   };
@@ -40,13 +73,16 @@ export async function activate(ctx: vscode.ExtensionContext) {
   status.show();
 
   ctx.subscriptions.push(
+    log,
     repos,
     status,
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionProvider(git)),
     vscode.commands.registerCommand('treeline.view', () => GraphPanel.show(ctx, services)),
     vscode.commands.registerCommand('treeline.fetch', async () => {
-      for (const repo of await repos.list())
+      for (const repo of await repos.list()) {
         await git.exec(repo.path, ['fetch', '--all', '--prune']).catch(() => {});
+        pulls.invalidate(repo.path);
+      }
       refresh();
     }),
     // From the Source Control title bar (a SourceControl argument) or the command palette

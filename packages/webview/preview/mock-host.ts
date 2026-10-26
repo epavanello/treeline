@@ -8,15 +8,77 @@ import {
   DEFAULT_VIEW,
   type Action,
   type GraphQuery,
+  type PullRequest,
   type RpcRequest
 } from '@treeline/shared';
 import fixture from './fixture.json';
+
+/** Pull requests to show on the demo branches (fixture.json has none: it isn't on GitHub). */
+function demoPulls(): PullRequest[] {
+  const hash = (name: string) =>
+    [...fixture.graph.heads, ...fixture.graph.remoteHeads].find((r) => r.ref.name === name)?.hash ??
+    '';
+  const now = Math.round(Date.now() / 1000);
+  const pr = (over: Partial<PullRequest> & Pick<PullRequest, 'number' | 'head' | 'title'>) => ({
+    url: `https://github.com/acme/shop/pull/${over.number}`,
+    state: 'open' as const,
+    author: 'sam',
+    updatedAt: now - 3 * 3600,
+    headOid: hash(over.head),
+    base: 'main',
+    decision: null,
+    reviewers: [],
+    threads: { resolved: 0, unresolved: 0 },
+    checks: 'passing' as const,
+    ...over
+  });
+  return [
+    pr({
+      number: 42,
+      head: 'feat/checkout-redesign',
+      title: 'Checkout redesign: one page, Apple Pay, saved cards',
+      decision: 'changes',
+      reviewers: [
+        { login: 'maya', state: 'changes' },
+        { login: 'leo', state: 'requested' }
+      ],
+      threads: { resolved: 3, unresolved: 2 },
+      checks: 'failing'
+    }),
+    pr({
+      number: 45,
+      head: 'feat/search-filters',
+      title: 'Search filters and price range',
+      state: 'draft',
+      author: 'leo',
+      checks: 'pending'
+    }),
+    pr({
+      number: 44,
+      head: 'fix/coupon-expiry',
+      title: 'Honour the coupon expiry timezone',
+      author: 'leo',
+      decision: 'approved',
+      reviewers: [{ login: 'sam', state: 'approved' }],
+      threads: { resolved: 1, unresolved: 0 }
+    }),
+    pr({
+      number: 38,
+      head: 'fix/cart-rounding',
+      title: 'Round cart totals per line',
+      state: 'merged',
+      updatedAt: now - 5 * 86400,
+      checks: null
+    })
+  ];
+}
 
 const reply = (id: number, result: unknown) =>
   setTimeout(() => window.postMessage({ id, result }, '*'), 30);
 
 let state: unknown;
 let view = structuredClone(DEFAULT_VIEW);
+let repoView: Record<string, unknown> | null = null;
 (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
   getState: () => state,
   setState: (s: unknown) => (state = s),
@@ -60,6 +122,27 @@ let view = structuredClone(DEFAULT_VIEW);
             files: []
           }
         );
+      case 'getBranchDetails': {
+        const all = (fixture as { branchDetails?: Record<string, unknown> }).branchDetails ?? {};
+        const refs = args[1] as { ref: string }[];
+        return reply(
+          id,
+          Object.fromEntries(
+            refs.map(({ ref }) => [
+              ref,
+              all[ref.replace(/^refs\/(heads|remotes)\//, '')] ?? { authors: [], unique: 0 }
+            ])
+          )
+        );
+      }
+      case 'getPullRequests':
+      case 'connectGitHub':
+        return reply(id, { status: 'ok', via: 'gh', repo: 'acme/shop', prs: demoPulls() });
+      case 'getRepoView':
+        return reply(id, repoView);
+      case 'setRepoView':
+        repoView = args[1] as Record<string, unknown>;
+        return reply(id, undefined);
       case 'getView':
         return reply(id, view);
       case 'setView':
@@ -67,11 +150,32 @@ let view = structuredClone(DEFAULT_VIEW);
         return reply(id, undefined);
       case 'run': {
         // Pretend git takes a while, so the busy spinners can be seen
-        const key = actionTarget(args[1] as Action);
+        const action = args[1] as Action;
+        const key = actionTarget(action);
         window.postMessage({ event: 'busy', key, busy: true }, '*');
         return setTimeout(() => {
+          // Deletions really happen, then the graph reloads, as with the extension
+          const gone =
+            action.type === 'deleteBranch'
+              ? [action.name]
+              : action.type === 'deleteBranches'
+                ? [...action.local, ...action.remote.map((r) => r.name)]
+                : [];
+          if (gone.length) {
+            const g = fixture.graph as {
+              heads: { ref: { name: string } }[];
+              remoteHeads: typeof g.heads;
+            };
+            g.heads = g.heads.filter((r) => !gone.includes(r.ref.name));
+            g.remoteHeads = g.remoteHeads.filter((r) => !gone.includes(r.ref.name));
+            for (const c of fixture.graph.commits)
+              (c as { refs: { name: string }[] }).refs = c.refs.filter(
+                (r: { name: string }) => !gone.includes(r.name)
+              );
+          }
           window.postMessage({ event: 'busy', key, busy: false }, '*');
           reply(id, undefined);
+          window.postMessage({ event: 'refresh' }, '*');
         }, 2000);
       }
       default:

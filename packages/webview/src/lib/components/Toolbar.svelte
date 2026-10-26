@@ -194,7 +194,7 @@
         command: 'git fetch --all --prune'
       }}
       icon={CloudDownload}
-      onclick={() => app.repo && host.run(app.repo, { type: 'fetch' })}
+      onclick={() => app.run({ type: 'fetch' })}
     />
     <Button
       variant="ghost"

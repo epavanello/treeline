@@ -23,7 +23,7 @@ import { createFixtureRepo } from '../test/fixture';
 
 /**
  * Answers, in order: input box → string | undefined (true = accept the default),
- * quick pick → label(s), modal → boolean.
+ * quick pick → label(s), modal → boolean (true = its first button) or the button's label.
  */
 type Answer = string | string[] | boolean | undefined;
 
@@ -88,8 +88,10 @@ describe('actions', () => {
         ? items.filter((i) => (a as string[]).includes(i.label))
         : items.find((i) => i.label === a);
     };
-    window.showWarningMessage = async (_: string, __: unknown, button: string) =>
-      next() ? button : undefined;
+    window.showWarningMessage = async (_: string, __: unknown, ...buttons: string[]) => {
+      const a = next();
+      return typeof a === 'string' ? a : a ? buttons[0] : undefined;
+    };
     window.showErrorMessage = async (message: string) => void errors.push(message);
     window.showInformationMessage = async (message: string) => void infos.push(message);
     assert.equal(vscode.window.showErrorMessage, window.showErrorMessage, 'prompts not stubbed');
@@ -315,6 +317,61 @@ describe('actions', () => {
     rmSync(sibling(detachedAt.slice(0, 8)), { recursive: true });
     await act({ type: 'pruneWorktrees' });
     assert.equal((await worktrees()).size, 1);
+  });
+
+  it('cleans up worktrees and branches in bulk, after one confirmation', async () => {
+    const sibling = (name: string) => join(dirname(dir), `${basename(dir)}-${name}`);
+    await act({ type: 'addWorktree', target: rev('HEAD') }, 'bulk-a');
+    await act({ type: 'addWorktree', target: rev('HEAD') }, 'bulk-b');
+    writeFileSync(join(sibling('bulk-b'), 'wip.txt'), 'x\n');
+    // As the graph lists them (real paths: the temp dir may sit behind a symlink)
+    const paths = (await git.getWorktrees(dir))
+      .map((w) => w.path)
+      .filter((p) => /bulk-[ab]$/.test(p));
+    assert.equal(paths.length, 2);
+    await act({ type: 'removeWorktrees', paths }, false);
+    assert.equal(existsSync(sibling('bulk-a')), true);
+    // Uncommitted changes don't stop it once confirmed; the branches go too when asked
+    await act({ type: 'removeWorktrees', paths }, 'Remove and Delete Their Branches');
+    assert.equal(existsSync(sibling('bulk-a')), false);
+    assert.equal(existsSync(sibling('bulk-b')), false);
+    assert.equal(sh('branch', '--list', 'bulk-a', 'bulk-b'), '');
+
+    // A worktree, its branch and the branch's copy on the remote: always asks (it's everyone's)
+    await act({ type: 'addWorktree', target: rev('HEAD') }, 'bulk-f');
+    sh('push', '-q', 'origin', 'bulk-f');
+    const fPath = (await git.getWorktrees(dir)).find((w) => w.branch === 'bulk-f')!.path;
+    const everywhere = {
+      type: 'removeWorktree',
+      path: fPath,
+      deleteBranch: 'bulk-f',
+      deleteRemote: { name: 'origin/bulk-f', remote: 'origin' }
+    } as const;
+    await act(everywhere, false);
+    assert.equal(existsSync(fPath), true);
+    await act(everywhere, true);
+    assert.equal(existsSync(fPath), false);
+    assert.equal(sh('branch', '--list', 'bulk-f'), '');
+    assert.doesNotMatch(remoteRefs(), /bulk-f/);
+
+    // Local branches and a remote one together
+    sh('branch', 'bulk-c');
+    sh('branch', 'bulk-d');
+    sh('push', '-q', 'origin', 'bulk-d');
+    const remote = [{ name: 'origin/bulk-d', remote: 'origin' }];
+    await act({ type: 'deleteBranches', local: ['bulk-c', 'bulk-d'], remote }, false);
+    assert.match(remoteRefs(), /refs\/heads\/bulk-d/);
+    await act({ type: 'deleteBranches', local: ['bulk-c', 'bulk-d'], remote }, true);
+    assert.equal(sh('branch', '--list', 'bulk-c', 'bulk-d'), '');
+    assert.doesNotMatch(remoteRefs(), /bulk-d/);
+
+    // Keeping the remote copies
+    sh('branch', 'bulk-e');
+    sh('push', '-q', 'origin', 'bulk-e');
+    const kept = [{ name: 'origin/bulk-e', remote: 'origin' }];
+    await act({ type: 'deleteBranches', local: ['bulk-e'], remote: kept }, 'Delete Only Local');
+    assert.equal(sh('branch', '--list', 'bulk-e'), '');
+    assert.match(remoteRefs(), /refs\/heads\/bulk-e/);
   });
 
   it('picks what a new worktree checks out', async () => {

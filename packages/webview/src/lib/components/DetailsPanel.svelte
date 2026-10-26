@@ -1,6 +1,18 @@
 <script lang="ts">
   import { ago, UNCOMMITTED, type FileChange } from '@treeline/shared';
-  import { ChevronRight, Folder, List, ListTree, TriangleAlert, X } from '@lucide/svelte';
+  import {
+    ChevronRight,
+    Copy,
+    File,
+    FileClock,
+    FileDiff,
+    Folder,
+    GitCompare,
+    List,
+    ListTree,
+    TriangleAlert,
+    X
+  } from '@lucide/svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { app } from '$lib/app.svelte';
   import { host } from '$lib/rpc';
@@ -64,6 +76,7 @@
     return [
       {
         label: 'View Diff',
+        icon: FileDiff,
         run: () => diff(file),
         hint: 'Side by side, before and after. When a side matches your working tree it opens the real file, so Go to Definition, errors and links work there.'
       },
@@ -72,6 +85,7 @@
             {
               // The working-tree side is the real file: Go to Definition, errors and links work
               label: 'Compare with Working Tree',
+              icon: GitCompare,
               run: () =>
                 host.openDiff({
                   repo: at,
@@ -83,6 +97,7 @@
             },
             {
               label: 'View File at this Revision',
+              icon: FileClock,
               run: () => host.openFile(at, file.path, file.status === 'U' ? `${to}^3` : to),
               hint: `The whole file as it was at ${short(to)}, read-only.`
             }
@@ -92,14 +107,15 @@
         ? [
             {
               label: 'Open File',
+              icon: File,
               run: () => host.openFile(at, file.path),
               hint: wt ? `Opens the file in ${folderName(at)}.` : 'Opens your current file on disk.'
             }
           ]
         : []),
       'separator',
-      { label: 'Copy Relative File Path', run: () => host.copy(file.path) },
-      { label: 'Copy Absolute File Path', run: () => host.copy(`${at}/${file.path}`) }
+      { label: 'Copy Relative File Path', icon: Copy, run: () => host.copy(file.path) },
+      { label: 'Copy Absolute File Path', icon: Copy, run: () => host.copy(`${at}/${file.path}`) }
     ];
   }
 </script>

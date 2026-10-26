@@ -72,6 +72,13 @@ describe('panel', () => {
     assert.equal(graph.commits.length, 10);
   });
 
+  it('opens files beside the graph, whose editor group is locked', async () => {
+    await vscode.commands.executeCommand('treeline.view');
+    const graphGroup = vscode.window.tabGroups.activeTabGroup.viewColumn;
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(`${dir}/a.txt`));
+    assert.notEqual(vscode.window.tabGroups.activeTabGroup.viewColumn, graphGroup);
+  });
+
   it('diffs a modified file', async () => {
     const hash = hashOf('Main moves on');
     const parent = fixtureGit('rev-parse', `${hash}^`).trim();

@@ -51,38 +51,72 @@
     if (!menuOpen) mark(null);
   });
 
+  /** Drops leading, trailing and repeated separators left by conditional items, at every level. */
+  function clean(list: MenuItem[]): MenuItem[] {
+    return list
+      .map((item) =>
+        item !== 'separator' && 'items' in item ? { ...item, items: clean(item.items) } : item
+      )
+      .filter((item) => item === 'separator' || !('items' in item) || item.items.length)
+      .filter(
+        (item, i, all) =>
+          item !== 'separator' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'separator')
+      );
+  }
+
   function open(e: MouseEvent, next: MenuItem[]) {
     if (claimed.has(e)) return;
     claimed.add(e);
-    // Drop leading, trailing and repeated separators left by conditional items
-    items = next.filter(
-      (item, i, all) =>
-        item !== 'separator' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'separator')
-    );
+    items = clean(next);
     let el = e.currentTarget as HTMLElement | null;
     // A `display: contents` wrapper has no box of its own: highlight what it wraps
     if (el && getComputedStyle(el).display === 'contents') el = el.firstElementChild as HTMLElement;
     mark(el);
   }
+
+  // The app's own text size, icons a notch smaller than the menu's default
+  const ITEM = "gap-2 py-1 text-[13px] [&_svg:not([class*='size-'])]:size-3.5";
 </script>
 
 <ContextMenu.Root bind:open={menuOpen}>
   <ContextMenu.Trigger class="contents" {oncontextmenu} {onpointerdowncapture} {onclickcapture}>
     {@render children(open)}
   </ContextMenu.Trigger>
-  <ContextMenu.Content class="min-w-56">
-    {#each items as item, i (i)}
-      {#if item === 'separator'}
-        <ContextMenu.Separator />
-      {:else}
-        <Tip hint={item.hint} side="right">
-          {#snippet children(trigger)}
-            <ContextMenu.Item {...trigger} onSelect={() => void item.run()}>
-              {item.label}
-            </ContextMenu.Item>
-          {/snippet}
-        </Tip>
-      {/if}
-    {/each}
+  <ContextMenu.Content class="min-w-52">
+    {@render entries(items)}
   </ContextMenu.Content>
 </ContextMenu.Root>
+
+{#snippet entries(list: MenuItem[])}
+  {#each list as item, i (i)}
+    {#if item === 'separator'}
+      <ContextMenu.Separator />
+    {:else if 'items' in item}
+      <ContextMenu.Sub>
+        <ContextMenu.SubTrigger
+          class="{ITEM} {item.destructive ? 'text-destructive [&_svg]:text-destructive' : ''}"
+        >
+          {#if item.icon}<item.icon />{:else}<span class="size-3.5"></span>{/if}
+          {item.label}
+        </ContextMenu.SubTrigger>
+        <ContextMenu.SubContent class="min-w-44">
+          {@render entries(item.items)}
+        </ContextMenu.SubContent>
+      </ContextMenu.Sub>
+    {:else}
+      <Tip hint={item.hint} side="right">
+        {#snippet children(trigger)}
+          <ContextMenu.Item
+            {...trigger}
+            class={ITEM}
+            variant={item.destructive ? 'destructive' : 'default'}
+            onSelect={() => void item.run()}
+          >
+            {#if item.icon}<item.icon />{:else}<span class="size-3.5"></span>{/if}
+            {item.label}
+          </ContextMenu.Item>
+        {/snippet}
+      </Tip>
+    {/if}
+  {/each}
+{/snippet}

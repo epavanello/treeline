@@ -5,6 +5,7 @@
   import { menuItems } from '$lib/menus';
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
+  import AuthorAvatar from './AuthorAvatar.svelte';
   import GraphSvg, { graphWidth, laneColor, ROW } from './GraphSvg.svelte';
   import RefBadge from './RefBadge.svelte';
 
@@ -98,6 +99,26 @@
     {/each}
   </div>
 
+  {#if !app.data && !app.error}
+    <!-- First load: the shape of what's coming, rather than an empty page -->
+    <div aria-busy="true" aria-label="Loading the history">
+      {#each Array.from({ length: 16 }, (_, i) => i) as i (i)}
+        <div class="flex items-center gap-3 px-3" style="height: {ROW}px">
+          <span
+            class="size-2.5 shrink-0 animate-pulse rounded-full bg-muted-foreground/25"
+            style="margin-left: {(i % 3) * 14}px"
+          ></span>
+          <span
+            class="h-2.5 animate-pulse rounded-sm bg-muted-foreground/15"
+            style="width: {25 + ((i * 37) % 40)}%"
+          ></span>
+          <span class="ml-auto h-2.5 w-28 animate-pulse rounded-sm bg-muted-foreground/10"></span>
+          <span class="h-2.5 w-20 animate-pulse rounded-sm bg-muted-foreground/10"></span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   {#snippet handle(col: 'graph' | Column, side: 'left' | 'right')}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <span
@@ -114,7 +135,11 @@
   <ActionMenu>
     {#snippet children(open)}
       <div class="relative">
-        <div class="absolute inset-y-0 left-0 overflow-hidden" style="width: {graphW}px">
+        <!-- Drawn over the rows: clicks go through to them -->
+        <div
+          class="pointer-events-none absolute inset-y-0 left-0 overflow-hidden"
+          style="width: {graphW}px"
+        >
           <GraphSvg graph={app.graph} {commits} head={app.data?.head ?? null} />
         </div>
         {#each commits as c, i (c.hash)}
@@ -195,8 +220,9 @@
               <div class="truncate px-2 leading-6 text-muted-foreground">{date(c.date)}</div>
             {/if}
             {#if app.view.columns.author}
-              <div class="truncate px-2 leading-6 text-muted-foreground" title={c.email}>
-                {c.author}
+              <div class="flex items-center gap-1.5 px-2 text-muted-foreground" title={c.email}>
+                {#if c.email}<AuthorAvatar name={c.author} email={c.email} />{/if}
+                <span class="truncate leading-6">{c.author}</span>
               </div>
             {/if}
             {#if app.view.columns.commit}

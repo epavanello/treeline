@@ -55,7 +55,7 @@ const scenes: Record<string, () => Promise<void>> = {
   async menu() {
     rightClick(find('[role=row] span.cursor-context-menu', 'main'));
     await wait(400);
-    hover(find('[data-slot=context-menu-content] [role=menuitem]', 'Rebase'));
+    hover(find('[data-slot=context-menu-content] [role=menuitem]', 'With '));
   }
 };
 

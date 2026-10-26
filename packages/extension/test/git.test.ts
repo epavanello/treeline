@@ -297,3 +297,92 @@ describe('author filter', () => {
     expect(await subjects(['Bob'])).toEqual([]);
   });
 });
+
+describe('getGraph with stale filters', () => {
+  it('ignores shown branches that were deleted since', async () => {
+    const g = await git.getGraph(query({ branches: ['topic', 'deleted-meanwhile'] }));
+    expect(g.commits.some((c) => c.subject === 'Topic commit')).toBe(true);
+    // Only deleted ones: everything, rather than an error
+    const all = await git.getGraph(query({ branches: ['deleted-meanwhile'] }));
+    expect(all.commits.length).toBe((await git.getGraph(query())).commits.length);
+  });
+});
+
+describe('branchDetails', () => {
+  const ada = { name: 'Ada', email: 'ada@example.com' };
+
+  it('finds who a branch belongs to and whether it is merged', async () => {
+    // The identity commits are made with, for the "mine" filters
+    expect((await git.getGraph(query())).user).toEqual(ada);
+    expect(await git.branchDetails(dir, 'refs/heads/topic', 'origin/main')).toEqual({
+      authors: [{ ...ada, commits: 1 }],
+      unique: 1
+    });
+    // Merged with a merge commit: its commits are the ones that merge brought in
+    const merge = execFileSync('git', ['rev-parse', ':/Merge feature'], { cwd: dir })
+      .toString()
+      .trim();
+    expect(await git.branchDetails(dir, 'refs/heads/feature', 'origin/main')).toEqual({
+      authors: [{ ...ada, commits: 2 }],
+      mergedBy: merge,
+      unique: 0
+    });
+  });
+
+  it('counts commits copied onto the base (cherry-pick, rebase and merge) as merged', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'treeline-copied-'));
+    const sh = (author: string, ...args: string[]) =>
+      execFileSync('git', args, {
+        cwd: repo,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: author,
+          GIT_AUTHOR_EMAIL: `${author.toLowerCase()}@example.com`,
+          GIT_COMMITTER_NAME: author,
+          GIT_COMMITTER_EMAIL: `${author.toLowerCase()}@example.com`
+        }
+      }).toString();
+    sh('Ada', 'init', '-q', '-b', 'main');
+    sh('Ada', 'commit', '-q', '--allow-empty', '-m', 'Start');
+    sh('Ada', 'checkout', '-q', '-b', 'side');
+    for (const [author, file] of [
+      ['Bob', 'x'],
+      ['Bob', 'y'],
+      ['Cy', 'z']
+    ]) {
+      writeFileSync(join(repo, file), `${file}\n`);
+      sh(author, 'add', file);
+      sh(author, 'commit', '-q', '-m', `Add ${file}`);
+    }
+    sh('Ada', 'checkout', '-q', 'main');
+    sh('Ada', 'cherry-pick', 'side~2', 'side~1');
+    const d = await git.branchDetails(repo, 'refs/heads/side', 'main');
+    expect(d.authors.map((a) => [a.name, a.commits])).toEqual([
+      ['Bob', 2],
+      ['Cy', 1]
+    ]);
+    expect(d.unique).toBe(1);
+    sh('Ada', 'cherry-pick', 'side');
+    expect((await git.branchDetails(repo, 'refs/heads/side', 'main')).unique).toBe(0);
+    // A branch sitting on the base's own history has no commits of its own: nobody's
+    sh('Ada', 'branch', 'old', 'main~1');
+    expect(await git.branchDetails(repo, 'refs/heads/old', 'main')).toEqual({
+      authors: [],
+      unique: 0
+    });
+    rmSync(repo, { recursive: true, force: true });
+  });
+});
+
+describe('commonDir', () => {
+  it('is the same for a repository and its worktrees', async () => {
+    const { dir: repo, git: sh } = createFixtureRepo();
+    const wt = `${repo}-wt`;
+    sh('worktree', 'add', '-q', wt, 'topic');
+    const main = await git.commonDir(repo);
+    expect(main).toMatch(/\.git$/);
+    expect(await git.commonDir(wt)).toBe(main);
+    expect(await git.commonDir(join(repo, '..'))).toBeNull();
+    rmSync(wt, { recursive: true, force: true });
+  });
+});

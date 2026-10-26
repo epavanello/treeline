@@ -3,14 +3,17 @@
   import { Check, ChevronDown, Cloud, Eye, EyeOff, FolderGit2, GitBranch } from '@lucide/svelte';
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
+  import { owner } from '$lib/filters';
   import { menuItems, refCommit } from '$lib/menus';
   import { Button } from '$lib/components/ui/button';
   import * as Command from '$lib/components/ui/command';
   import * as Popover from '$lib/components/ui/popover';
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
+  import AuthorAvatar from './AuthorAvatar.svelte';
   import BranchState from './BranchState.svelte';
   import RefCard from './RefCard.svelte';
+  import RefName from './RefName.svelte';
   import Tip from './Tip.svelte';
 
   /**
@@ -126,12 +129,16 @@
                               app.hidden.includes(r.ref.name) && 'line-through opacity-60'
                             )}
                           >
-                            {r.ref.name}
+                            <RefName ref={r.ref} />
                           </span>
                           <span
                             class="ml-auto flex shrink-0 gap-1.5 text-[11px] text-muted-foreground tabular-nums"
                           >
                             <BranchState {r} />
+                            {#if owner(app.branchDetails[r.ref.name])}
+                              {@const o = owner(app.branchDetails[r.ref.name])!}
+                              <AuthorAvatar name={o.name} email={o.email} />
+                            {/if}
                             <span class="w-7 text-right">{since(r.date)}</span>
                           </span>
                           <!-- Hide from "all" (or bring back), without ticking the row -->

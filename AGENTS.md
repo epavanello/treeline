@@ -54,7 +54,29 @@ branch with main, review diffs with working language features, juggle worktrees 
    `for-each-ref --format=%(ahead-behind:<base>)`, git 2.41+; cloud icons for the upstream), the `RefCard`
    hover card and the ref's context menu. **Hidden branches** (`GraphQuery.hidden`, the opposite of
    `branches`): `--exclude=<name>` before `--branches`/`--remotes` drops the commits only they have; set from
-   the picker's eye button or the "Show Only / Also Show / Stop Showing / Hide This Branch" menu items. Rows are toggled from the toolbar (`ViewSettings`, kept in
+   the picker's eye button or the "Show Only / Also Show / Stop Showing / Hide This Branch" menu items.
+   **Branch rows** (`branchRows()` in `filters.ts`, `app.rows` / `app.rowOf`): a local branch and its
+   remote copy (its upstream, else `<remote>/<same name>`) are one chip; remote branches nobody has
+   locally follow (dashed chips). `BranchState`'s cloud: filled = both (with upstream ↑↓), outline =
+   remote only, crossed = local only (warning color when `upstream.gone`).
+   **Row filters** (`filters.ts`, pure and unit-tested; state in `app.branchFilter/worktreeFilter`, persisted
+   with the webview state): the Branches and Worktrees titles open a `FilterMenu` (scope local/remote/both,
+   owner, state). They filter the chips only, never the graph. The cleanup states (`CLEANUP`) add a
+   "Delete N" / "Remove N" button running `deleteBranches` / `removeWorktrees`: one modal for the lot,
+   saying what would be lost; `deletable()` / `removable()` keep the base, checked-out branches, the
+   main and current worktrees out. **Branch details** (`getBranchDetails` → `Git.branchDetails`): the
+   authors of `base..ref` (no merges) and `unique` = `rev-list --cherry-pick --right-only base...ref`
+   (0 = merged, copies included); preloaded after each load (the Branches row's scope first, then the
+   rest), asked 40 at a time (`preloadBranchDetails`, `app.branchProgress`) and computed 6 git
+   processes at a time host-side by `BranchDetailsCache` (`branchDetails.ts`), which keeps answers in
+   `workspaceState` by repo + ref + branch hash + `Compare.baseHash`: reopening costs nothing. Once merged
+   (`base..ref` empty), its own commits are `<merge>^1..ref`, `<merge>` being the oldest commit of
+   `rev-list --first-parent --ancestry-path ref..base` (`mergedBy`); a branch on the base's mainline
+   has none. Authors are grouped by name (one person, several emails). Owner = top author, or nobody
+   (never guessed from one commit); "mine" compares it with `GraphData.user` (`git var GIT_AUTHOR_IDENT`).
+   `AuthorAvatar` draws initials in a lane color picked from the name: the place where GitHub photos
+   would go. `app.refLabel()` / `RefName` drop `origin/` from remote branch names (kept as a small
+   prefix with several remotes). Rows are toggled from the toolbar (`ViewSettings`, kept in
    the extension's `globalState`, which also holds the commit list's column visibility and widths:
    drag a header edge, double-click to reset; `DEFAULT_VIEW` in `shared` fills fields missing from older
    saved settings).
@@ -71,9 +93,19 @@ branch with main, review diffs with working language features, juggle worktrees 
 5. **Commit messages with Claude** (`commitMessage.ts`): `claude -p --model haiku` run in a temp dir with the
    staged diff (or all changes) and the last 15 subjects on stdin; falls back to `vscode.lm`. The result goes
    into the Source Control input box. Triggers: ✨ in the Source Control title bar, the Uncommitted Changes menu.
-6. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
+6. **Pull requests** (`pulls.ts`, vscode-free, unit-tested with a fake `gh`): one GraphQL query for the
+   50 most recently updated PRs (state, review decision, latest review per reviewer, review requests,
+   review threads resolved/unresolved, checks rollup), run by `gh api graphql` with gh's active
+   account, then each other signed-in account (`gh auth status --json hosts`, `gh auth token --user`,
+   the working one remembered per repo), else with the editor's GitHub session (`getSession('github',
+['repo'], { silent })`; `connectGitHub` asks for consent). Cached 60 s per repo, invalidated by fetch,
+   push and branch deletions (`extension.ts`); the webview asks after each load and every minute.
+   Matched to branches by head branch name (`pullsOf`), forks' PRs left out. A merged PR whose head is
+   the branch's commit makes it merged (`isMerged`): squash merges, which git alone can't see.
+   Shown in `RefCard` (`PullCard`), on chips (`PullBadge`) and in the branch menus (`pullItems`).
+7. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
 
-Later ideas: avatars, commit search
+Later ideas: GitHub avatars (see `AuthorAvatar`), commit search
 server-side (`--grep`), a WebviewPanelSerializer so the panel survives window reloads, settings
 (page size, date format, graph style), multi-select actions.
 
@@ -114,6 +146,7 @@ packages/
     src/git.ts        vscode-free git CLI layer (log, refs, stashes, details, diffs). Unit-tested.
     src/actions.ts    every write operation; native prompts only when needed (see "Fewer prompts")
     src/commitMessage.ts  commit message generation (Claude CLI, fallback vscode.lm)
+    src/pulls.ts      GitHub pull requests (gh CLI, fallback the editor's GitHub account)
     src/repos.ts      repo discovery + change events via the built-in vscode.git API (fallback: watcher)
     src/diff.ts       `treeline:` TextDocumentContentProvider + vscode.diff
     src/panel.ts      the WebviewPanel, CSP, and the RPC dispatcher
@@ -127,8 +160,9 @@ packages/
     src/lib/menus.ts        context menus as data
     src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, NavStrip (+ its rows
                             WorktreeStrip, RefStrip), BranchPicker (the branch filter), RefCard,
-                            BranchState, MultiFilter (authors, base), ActionMenu, RefBadge,
-                            WorktreeState, Tip
+                            BranchState, MultiFilter (authors, base), FilterMenu (row filters),
+                            AuthorAvatar/AuthorStack, RefName, PullBadge/PullCard, ActionMenu,
+                            RefBadge, WorktreeState, Tip
     preview/                runs the webview in a plain browser with a mocked host; `?scene=branches|
                             review|menu` (scenes.ts) stages the README screenshots
 ```
@@ -141,6 +175,10 @@ packages/
 - **Actions**: the webview sends an `Action` (`shared`); `plan()` in `actions.ts` turns
   it into steps (git argv lists, or callbacks such as "open the new worktree"). Adding an action = a variant in
   `Action`, a `case` in `plan()`, a menu item in `menus.ts`. After every action, `refresh()` reloads the graph.
+- **Remembered setup**: the webview's own state (`vscode.setState`) keeps only the repository and the ↑↓
+  filters; hidden/shown branches, authors, remotes, base and the rows' filters are a `RepoView` the host
+  keeps in `globalState` by `Git.commonDir()` (the shared `.git`, realpath'd), so every worktree and
+  window of a repository opens set up the same way. Sent only when it changed.
 - **Refresh**: `vscode.git`'s `repository.state.onDidChange` (debounced 400 ms) → `refresh` → the webview
   reloads the graph keeping its selection.
 - **Paging**: like Git Graph, "load more" re-runs `git log` with a larger `--max-count` (300 per page) so the
@@ -189,11 +227,17 @@ Install the build: `code --install-extension packages/extension/treeline.vsix`
 - Tailwind's `@source '.'` in `app.css` is needed for the browser preview (Vite root = `preview/`).
 - `vsce package --no-dependencies`: everything must be bundled; dependencies are devDependencies.
 - Context menus: one `ActionMenu` per area; children call `open(e, items)` and the innermost element wins.
+  A `MenuItem` may carry an `icon` (lucide), be `destructive`, or hold `items` (a submenu); empty
+  submenus and stray separators are dropped. Branch deletion is `deleteItems()`: one item or a submenu,
+  depending on which copies exist and may go.
 - e2e tests import `../src/*` and are bundled with `vscode` external, so they share the extension's `vscode`
   API object: that's how `actions.test.ts` stubs `showInputBox`/`showQuickPick`/`showWarningMessage`.
   `activate()` returns `{ git }` only so the smoke test can observe graph loads.
 - Not covered by e2e: what the webview renders and its clicks (use the browser preview), `openFolder`
   (it would open a new window). Worktree statuses refresh with the graph, but edits made inside _another_
   worktree don't trigger a refresh (only the repos open in this window are watched).
+- Slow repository? The **Treeline** output channel logs git commands, graph loads and pull request
+  lookups of a second or more (`Git`'s `onSlow`, `timed()` in `panel.ts`), and each branch details
+  preload's total.
 - Launching VS Code by hand with a custom `--user-data-dir`: macOS caps the IPC socket path at 103 chars,
   so keep that directory path short.

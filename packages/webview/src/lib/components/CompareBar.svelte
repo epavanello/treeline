@@ -19,7 +19,7 @@
   /** HEAD vs a base branch: the "how far am I from main" bar under the toolbar. */
   const c = $derived(app.data?.compare ?? null);
   const head = $derived(app.data?.currentBranch ?? 'HEAD');
-  const run = (action: Action) => app.repo && host.run(app.repo, action);
+  const run = (action: Action) => app.run(action);
   const toggle = 'aria-pressed:bg-selection aria-pressed:text-selection-foreground';
   const commits = (n: number) => `${n} commit${n === 1 ? '' : 's'}`;
 

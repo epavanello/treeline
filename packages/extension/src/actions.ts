@@ -41,22 +41,38 @@ const changes = (git: Git, dir: string, untracked = true) =>
     () => 0
   );
 
-/** Commits reachable from `branch` and from no other branch, remote branch or tag. */
-const uniqueCommits = (git: Git, repo: string, branch: string) =>
+/**
+ * Commits reachable from `branch` and from no other branch, remote branch or tag (`alsoGone`, local,
+ * and `remotesGone`, remote branches deleted together with it, don't count as keeping a commit).
+ */
+const uniqueCommits = (
+  git: Git,
+  repo: string,
+  branch: string,
+  alsoGone: string[] = [],
+  remotesGone: string[] = []
+) =>
   git
     .exec(repo, [
       'rev-list',
       '--count',
       `refs/heads/${branch}`,
       '--not',
-      `--exclude=${branch}`,
+      ...[branch, ...alsoGone].map((b) => `--exclude=${b}`),
       '--branches',
+      ...remotesGone.map((r) => `--exclude=${r}`),
       '--remotes',
       '--tags'
     ])
     .then(Number, () => 0);
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string) =>
+  `${n} ${word}${n === 1 ? '' : /(s|sh|ch)$/.test(word) ? 'es' : 's'}`;
+/** "a, b and c", or "a, b, c, d, e and 7 more" for a long list. */
+const list = (items: string[], max = 6) =>
+  items.length <= max
+    ? items.join(', ').replace(/, ([^,]*)$/, ' and $1')
+    : `${items.slice(0, max - 1).join(', ')} and ${items.length - max + 1} more`;
 const short = (hash: string) => hash.slice(0, 8);
 const folder = (dir: string) => path.basename(dir);
 
@@ -155,6 +171,63 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
       return (await confirm(`Delete ${branch} on ${a.remote}?`, 'Delete'))
         ? [['push', a.remote, '--delete', branch]]
         : null;
+    }
+    case 'deleteBranches': {
+      // One confirmation for the lot. A local branch and its remote copy are one branch here; what
+      // would be lost is counted for all of them at once (commits only they have, together)
+      const lost = (refs: string[]) =>
+        refs.length
+          ? git
+              .exec(repo, [
+                'rev-list',
+                '--count',
+                ...refs,
+                '--not',
+                ...a.local.map((b) => `--exclude=${b}`),
+                '--branches',
+                ...(refs.length > a.local.length ? a.remote.map((r) => `--exclude=${r.name}`) : []),
+                '--remotes',
+                '--tags'
+              ])
+              .then(Number, () => 0)
+          : Promise.resolve(0);
+      const locals = a.local.map((b) => `refs/heads/${b}`);
+      const [lostAll, lostLocal] = await Promise.all([
+        lost([...locals, ...a.remote.map((r) => `refs/remotes/${r.name}`)]),
+        lost(locals)
+      ]);
+      const short = (r: { name: string; remote: string }) => r.name.slice(r.remote.length + 1);
+      const remoteOnly = a.remote.filter((r) => !a.local.includes(short(r)));
+      const names = [...a.local, ...remoteOnly.map((r) => r.name)];
+      const BOTH = 'Delete Local and Remote';
+      const LOCAL = 'Delete Only Local';
+      const choice = await vscode.window.showWarningMessage(
+        [
+          `Delete ${plural(names.length, 'branch')}: ${list(names)}?`,
+          a.remote.length &&
+            `${a.remote.length === names.length ? 'They are' : `${a.remote.length} of them are`} on the remote too: deleting them there deletes them for everyone.`,
+          lostAll &&
+            `${plural(lostAll, 'commit')} that no other branch contains will be lost${!lostLocal && a.local.length ? ', unless you keep the remote copies' : ''}.`
+        ]
+          .filter(Boolean)
+          .join(' '),
+        { modal: true },
+        ...(a.local.length && a.remote.length
+          ? [BOTH, LOCAL]
+          : [`Delete ${plural(names.length, 'Branch')}`])
+      );
+      if (!choice) return null;
+      const remote = choice === LOCAL ? [] : a.remote;
+      const remotes = [...new Set(remote.map((r) => r.remote))];
+      return [
+        ...(a.local.length ? [['branch', '-D', ...a.local]] : []),
+        ...remotes.map((name) => [
+          'push',
+          name,
+          '--delete',
+          ...remote.filter((r) => r.remote === name).map(short)
+        ])
+      ];
     }
     case 'pushBranch': {
       const remote = await pickRemote(git, repo);
@@ -400,26 +473,98 @@ async function plan(git: Git, repo: string, a: Action): Promise<Step[] | null> {
       return [add, a.open ? () => openFolder(dir) : () => worktreeReady(dir)];
     }
     case 'removeWorktree': {
-      // One confirmation, only if something would be lost, listing everything that would be
+      // One confirmation, only if something would be lost (always when deleting on the remote: it's
+      // gone for everyone), listing everything that would be
+      const r = a.deleteRemote;
+      const short = r ? r.name.slice(r.remote.length + 1) : '';
       const [dirty, only] = await Promise.all([
         changes(git, a.path),
-        a.deleteBranch ? uniqueCommits(git, repo, a.deleteBranch) : 0
+        a.deleteBranch ? uniqueCommits(git, repo, a.deleteBranch, [], r ? [r.name] : []) : 0
       ]);
       const lost = [
         dirty && plural(dirty, 'uncommitted change'),
         only && `${plural(only, 'commit')} that only ${a.deleteBranch} contains`
       ].filter(Boolean);
+      const what = `${folder(a.path)}${a.deleteBranch ? ` and delete ${a.deleteBranch}${r ? ` here and on ${r.remote}, for everyone` : ''}` : ''}`;
       if (
-        lost.length &&
+        (lost.length || r) &&
         !(await confirm(
-          `Remove ${folder(a.path)}${a.deleteBranch ? ` and delete ${a.deleteBranch}` : ''}? You'll lose ${lost.join(' and ')}.`,
+          `Remove ${what}?${lost.length ? ` You'll lose ${lost.join(' and ')}.` : ''}`,
           'Remove'
         ))
       )
         return null;
       return [
         ['worktree', 'remove', ...(dirty ? ['--force'] : []), a.path],
-        ...(a.deleteBranch ? [['branch', '-D', a.deleteBranch]] : [])
+        ...(a.deleteBranch ? [['branch', '-D', a.deleteBranch]] : []),
+        ...(r ? [['push', r.remote, '--delete', short]] : [])
+      ];
+    }
+    case 'removeWorktrees': {
+      const worktrees = (await git.getWorktrees(repo)).filter((w) => a.paths.includes(w.path));
+      if (!worktrees.length) return null;
+      const branches = worktrees.flatMap((w) => (w.branch ? [w.branch] : []));
+      const [dirty, only] = await Promise.all([
+        Promise.all(worktrees.map((w) => changes(git, w.path))),
+        Promise.all(branches.map((b) => uniqueCommits(git, repo, b, branches)))
+      ]);
+      const dirtyNames = worktrees.filter((_, i) => dirty[i]).map((w) => folder(w.path));
+      const lost = only.reduce((n, c) => n + c, 0);
+      // Their branches' remote copies (their upstreams, still there)
+      const refs = await git.listRefs(repo);
+      const remoteNames = new Set(
+        refs.filter((x) => x.ref.kind === 'remote').map((x) => x.ref.name)
+      );
+      const upstreams = refs.flatMap((x) => {
+        const up = x.ref.upstream;
+        const remote = refs.find((y) => y.ref.name === up?.name)?.ref.remote;
+        return x.ref.kind === 'head' &&
+          branches.includes(x.ref.name) &&
+          up &&
+          remoteNames.has(up.name) &&
+          remote
+          ? [{ name: up.name, remote }]
+          : [];
+      });
+      const REMOVE = `Remove ${plural(worktrees.length, 'Worktree')}`;
+      const AND_DELETE = 'Remove and Delete Their Branches';
+      const EVERYWHERE = `Also Delete Them on the Remote`;
+      const choice = await vscode.window.showWarningMessage(
+        [
+          `Remove ${plural(worktrees.length, 'worktree')}: ${list(worktrees.map((w) => folder(w.path)))}?`,
+          dirtyNames.length &&
+            `${list(dirtyNames)} ${dirtyNames.length === 1 ? 'has' : 'have'} uncommitted changes that will be lost.`,
+          branches.length &&
+            `Their branches stay, unless you delete them too${lost ? `: that loses ${plural(lost, 'commit')} no other branch contains` : ''}.`,
+          upstreams.length &&
+            `${plural(upstreams.length, 'branch')} also ${upstreams.length === 1 ? 'is' : 'are'} on the remote: deleting ${upstreams.length === 1 ? 'it' : 'them'} there deletes ${upstreams.length === 1 ? 'it' : 'them'} for everyone.`
+        ]
+          .filter(Boolean)
+          .join(' '),
+        { modal: true },
+        REMOVE,
+        ...(branches.length ? [AND_DELETE] : []),
+        ...(upstreams.length ? [EVERYWHERE] : [])
+      );
+      if (!choice) return null;
+      return [
+        ...worktrees.map((w, i) => [
+          'worktree',
+          'remove',
+          ...(dirty[i] ? ['--force'] : []),
+          w.path
+        ]),
+        ...(choice !== REMOVE ? [['branch', '-D', ...branches]] : []),
+        ...(choice === EVERYWHERE
+          ? [...new Set(upstreams.map((u) => u.remote))].map((remote) => [
+              'push',
+              remote,
+              '--delete',
+              ...upstreams
+                .filter((u) => u.remote === remote)
+                .map((u) => u.name.slice(remote.length + 1))
+            ])
+          : [])
       ];
     }
     case 'bringWorktreeHere': {
@@ -460,13 +605,18 @@ export async function runAction(
   const steps = await plan(git, repo, action);
   if (!steps) return;
   onStart?.();
+  const label = (step: string[]) => `git ${step[0] === '-C' ? step[2] : step[0]}`;
   const first = steps.find((s): s is string[] => Array.isArray(s))!;
-  const name = `git ${first[0] === '-C' ? first[2] : first[0]}`;
+  // The step that failed names the error, not the action's first one
+  let name = label(first);
   try {
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Window, title: name },
       async () => {
-        for (const step of steps) await (Array.isArray(step) ? git.exec(repo, step) : step());
+        for (const step of steps) {
+          if (Array.isArray(step)) name = label(step);
+          await (Array.isArray(step) ? git.exec(repo, step) : step());
+        }
       }
     );
   } catch (e) {

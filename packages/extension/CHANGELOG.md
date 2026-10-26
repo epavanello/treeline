@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.5.0
+
+- A branch is one chip in the Branches row: your local branch and the remote branch it tracks
+  together. A cloud says where it lives: filled on your machine and on the remote (with ↑ to push and
+  ↓ to pull), outline only on the remote (a dashed chip: someone else's branch you don't have), crossed
+  only here (in the warning color once the remote deleted it)
+- The Worktrees and Branches rows have their own filter (click their title): local branches, ones only
+  on the remote, or all; yours or anyone's; merged, not merged yet, deleted on the remote, with
+  uncommitted changes, clean, or untouched for 30 days
+- Filtering by merged, deleted on the remote, clean or untouched offers to delete or remove them all at
+  once, with one confirmation saying what would be lost: a branch goes with its remote copy, unless you
+  keep the remote ones; worktrees can take their branches with them
+- Merged means all of a branch's changes are on the compare base, rebased or cherry-picked copies
+  included, or its pull request was merged (squash merges included)
+- Pull requests in the branch card: title (opens it on GitHub), state, review verdict, each reviewer's
+  verdict, unresolved and resolved conversations, checks. Chips show an open pull request and its
+  unresolved conversations; the branch menu opens it. Read with the gh CLI when it's signed in (any of
+  its accounts), else with the editor's GitHub account; kept up to date every minute and after a fetch
+- Every branch has an owner: whoever wrote most of its own commits (the ones not on the base or, once
+  merged with a merge commit, the ones that merge brought in). Their initials show on chips and in the
+  branch list; the hover card gives each author's share ("Leo Rossi 86%, 6 of its 7 commits"). A
+  branch with no commits of its own is nobody's, so "mine" never guesses
+- Commit authors show their initials, in a color of their own, in the Author column (one color per
+  person, whichever email they used)
+- Remote branches drop their remote's name ("origin/") on badges, chips and the branch list: the cloud
+  icon says it. With several remotes, it stays as a small prefix
+- Context menus: an icon for every action, the app's text size, and submenus where options pile up
+  (Graph Filter, "With <current branch>": compare, merge, rebase; several pull requests)
+- One Delete that fits the branch: local only, remote only, or a submenu (Local and Remote, Only Local,
+  Only on the remote). Deleting the local copy asks only when commits would be lost; deleting on the
+  remote always asks, since it's gone for everyone
+- Each repository remembers how you set up its graph: hidden branches, the branches and authors shown,
+  remote branches on or off, the compare base, the rows' filters. Every worktree of it, in any window,
+  opens the same way
+- Graph badges look like the branch chips: the owner's initials, and a cloud for where the branch
+  lives (filled when it's on the remote too, with ↑↓ when they differ; crossed when it isn't). A
+  local branch and its remote on the same commit show a filled cloud instead of "origin", whose name
+  appears only when the repository has several remotes
+- Big repositories: branch owners and merged state are worked out in parallel, a batch at a time, and
+  kept across sessions (reopening costs nothing until a branch moves): 270 branches went from minutes
+  of spinner to about 3 seconds the first time. The filter's tooltip shows the progress
+- While the history first loads, placeholder rows show instead of an empty page
+- A Treeline output channel (View → Output) logs git commands, graph loads and pull request lookups
+  that take a second or more, for diagnosing slow repositories
+- Fixed: after an action (deleting a branch, say) the graph could keep showing the old state. It now
+  reloads after every action even if the editor's reload notice goes astray, retries a load that
+  failed while git was busy, and forgets shown or hidden branches that were deleted
+- The Worktrees row is ordered like the branches: the main worktree and the one the graph shows
+  first, then the others by their latest commit
+- Fixed: clicking (or right-clicking) a commit in the Graph column did nothing; only from the
+  Description column on did it select the commit
+- An error names the git command that failed, not the action's first one ("git push failed" when
+  deleting on the remote is what went wrong)
+- The Git Graph tab opens in a locked editor group: files and diffs opened from it open beside it
+  instead of replacing it
+- Removing a worktree is a submenu: only the folder, the folder and its branch, or also the branch's
+  copy on the remote (asks first). Removing several at once offers the same
+- Branch and worktree cards read at a glance: small labels, dates in italics, hashes and branch names
+  in monospace, ahead in green and behind in blue, a check when merged ("merged through #38" when
+  GitHub squashed it), the remote's state with its cloud
+
 ## 0.4.2
 
 - The store page opens on a short demo of Treeline, with a link to the full 1-minute video

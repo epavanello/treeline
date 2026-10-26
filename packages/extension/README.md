@@ -21,6 +21,12 @@
   create (worktree picker, next semver tag).
 - 🎯 **See only what matters.** Show only some branches, or hide the noisy ones, from the branch dropdown or
   any branch's right-click menu. Local and remote branches, with their age and state, in one searchable list.
+- 🧹 **Clean up in one click.** Filter the branch and worktree rows to yours, merged ones (rebased copies
+  count), ones deleted on the remote or untouched for a month, then delete them all with one confirmation
+  that says what would be lost. Every branch shows its owner.
+- 🔀 **Pull requests where you look.** Each branch's card shows its pull requests: state, reviewers and
+  their verdicts, unresolved conversations, checks. Through your signed-in gh CLI, or your editor's
+  GitHub account.
 - ✨ **Commit messages by Claude.** The ✨ button in the Source Control title bar uses your local
   [Claude Code](https://claude.com/claude-code) CLI (`claude` on your PATH), or any model your editor
   provides, and writes in your repository's style.

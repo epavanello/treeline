@@ -3,8 +3,12 @@
  * against a real temporary repository.
  */
 import { execFile } from 'node:child_process';
+import { realpath } from 'node:fs/promises';
+import { resolve as resolvePath } from 'node:path';
 import {
   UNCOMMITTED,
+  type BranchAuthor,
+  type BranchDetails,
   type Commit,
   type CommitDetails,
   type Compare,
@@ -31,10 +35,15 @@ export class Git {
   /** Last worktree comparisons, by worktree path (see worktreeDetails). */
   private readonly worktreeCompares = new Map<string, { key: string; compare: Compare | null }>();
 
-  constructor(private readonly gitPath = 'git') {}
+  constructor(
+    private readonly gitPath = 'git',
+    /** Told about every command that took a second or more (the extension logs them). */
+    private readonly onSlow?: (args: string[], ms: number) => void
+  ) {}
 
   exec(repo: string, args: string[]): Promise<string> {
-    return new Promise((resolve, reject) => {
+    const started = Date.now();
+    return new Promise<string>((resolve, reject) => {
       execFile(
         this.gitPath,
         ['-c', 'core.quotepath=false', '-c', 'log.showSignature=false', ...args],
@@ -44,6 +53,8 @@ export class Git {
           env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
         },
         (err, stdout, stderr) => {
+          const ms = Date.now() - started;
+          if (ms >= 1000) this.onSlow?.(args, ms);
           if (err) reject(new GitError((stderr || err.message).trim()));
           else resolve(stdout);
         }
@@ -56,6 +67,16 @@ export class Git {
     return promise.catch(() => fallback);
   }
 
+  /**
+   * The `.git` directory every worktree of the repository shares: what identifies the repository
+   * whichever of its folders is open.
+   */
+  async commonDir(dir: string): Promise<string | null> {
+    const out = await this.try(this.exec(dir, ['rev-parse', '--git-common-dir']), '');
+    // Relative from the main folder, absolute and symlinks resolved from a worktree: one spelling
+    return out.trim() ? this.try(realpath(resolvePath(dir, out.trim())), null) : null;
+  }
+
   async toplevel(dir: string): Promise<string | null> {
     return this.try(
       this.exec(dir, ['rev-parse', '--show-toplevel']).then((s) => s.trim()),
@@ -65,7 +86,7 @@ export class Git {
 
   async getGraph(q: GraphQuery): Promise<GraphData> {
     const remotes = lines(await this.try(this.exec(q.repo, ['remote']), ''));
-    const [refs, head, currentBranch, stashes, worktrees] = await Promise.all([
+    const [refs, head, currentBranch, stashes, worktrees, user] = await Promise.all([
       this.getRefs(q.repo, remotes),
       this.try(
         this.exec(q.repo, ['rev-parse', '--verify', '-q', 'HEAD']).then((s) => s.trim() || null),
@@ -76,7 +97,15 @@ export class Git {
         null
       ),
       this.getStashes(q.repo),
-      this.getWorktrees(q.repo)
+      this.getWorktrees(q.repo),
+      // "Name <email> <timestamp> <zone>": the identity commits are made with
+      this.try(
+        this.exec(q.repo, ['var', 'GIT_AUTHOR_IDENT']).then((s) => {
+          const m = s.trim().match(/^(.*) <(.*)> \d+ [+-]\d+$/);
+          return m ? { name: m[1], email: m[2] } : null;
+        }),
+        null
+      )
     ]);
 
     // Mark branches that are checked out in another worktree
@@ -94,10 +123,12 @@ export class Git {
       }
     }
     const focus = compare && q.focus.length ? q.focus : null;
+    // Branches picked to show that were deleted since: git log would fail on them
+    const shown = q.branches.filter((b) => refs.some((r) => r.ref.name === b));
     const revs = focus
       ? ['--boundary', `HEAD...${compare!.base}`]
-      : q.branches.length
-        ? q.branches
+      : shown.length
+        ? shown
         : [
             // --exclude applies to the next --branches / --remotes, with names relative to them
             ...exclude(q.hidden, refs, 'head'),
@@ -118,7 +149,7 @@ export class Git {
             // Repeated --author is an OR; anchor on "Name <" so names match exactly
             ...q.authors.map((a) => `--author=^${a.replace(/[\\.[\]*^$]/g, '\\$&')} <`),
             ...revs,
-            ...(q.branches.length || focus ? [] : stashBases),
+            ...(shown.length || focus ? [] : stashBases),
             '--'
           ])
         : '';
@@ -182,6 +213,7 @@ export class Git {
       remoteHeads: refs.filter((r) => r.ref.kind === 'remote'),
       compare: compare && {
         base: compare.base,
+        baseHash: compare.baseHash,
         ahead: compare.ahead,
         behind: compare.behind,
         same: compare.same,
@@ -189,6 +221,7 @@ export class Git {
         mergeBaseDate: compare.mergeBaseDate,
         rewritten: compare.rewritten
       },
+      user,
       hasMore
     };
   }
@@ -246,12 +279,16 @@ export class Git {
     // --cherry-mark tells the commits whose changes are on both sides (rebased, cherry-picked) with '='
     const side = (only: string) =>
       this.try(this.exec(repo, ['rev-list', '--cherry-mark', only, `HEAD...${base}`, '--']), null);
-    const [mine, theirs, mergeBase] = await Promise.all([
+    const [mine, theirs, mergeBase, baseHash] = await Promise.all([
       side('--left-only'),
       side('--right-only'),
       this.try(
         this.exec(repo, ['merge-base', 'HEAD', base]).then((s) => s.trim() || null),
         null
+      ),
+      this.try(
+        this.exec(repo, ['rev-parse', base]).then((s) => s.trim()),
+        ''
       )
     ]);
     if (mine === null || theirs === null) return null; // the base doesn't exist (any more)
@@ -274,7 +311,54 @@ export class Git {
       : null;
     // Copies dominate HEAD's side: not a rebase-and-merge of a few commits but a rewritten history
     const rewritten = count.same >= REWRITTEN && count.same > count.ahead;
-    return { base, ...count, mergeBase, mergeBaseDate, rewritten, sides };
+    return { base, baseHash, ...count, mergeBase, mergeBaseDate, rewritten, sides };
+  }
+
+  /**
+   * Who wrote a branch's own commits, and how many of them aren't on `base`, not even as copies
+   * (rebased, cherry-picked): none means merged. Its own commits are the ones `base` doesn't have;
+   * once it was merged with a merge commit, the ones that merge brought in.
+   */
+  async branchDetails(repo: string, ref: string, base: string): Promise<BranchDetails> {
+    const authorsOf = async (range: string) => {
+      const log = await this.exec(repo, ['log', '--no-merges', `--format=%aN${F}%aE`, range, '--']);
+      // By name: one person often commits with several emails (work, personal, GitHub's noreply)
+      const authors = new Map<string, BranchAuthor>();
+      for (const l of lines(log)) {
+        const [name, email] = l.split(F);
+        const author = authors.get(name.toLowerCase()) ?? { name, email, commits: 0 };
+        author.commits++;
+        authors.set(name.toLowerCase(), author);
+      }
+      return [...authors.values()].sort((a, b) => b.commits - a.commits);
+    };
+    const ahead = await authorsOf(`${base}..${ref}`);
+    if (ahead.length) {
+      // --cherry-pick compares patches, which costs: only when there is something to look for
+      const unique = await this.exec(repo, [
+        'rev-list',
+        '--count',
+        '--no-merges',
+        '--cherry-pick',
+        '--right-only',
+        `${base}...${ref}`,
+        '--'
+      ]);
+      return { authors: ahead, unique: +unique };
+    }
+    // Everything is on the base. The oldest commit of the base's mainline that contains the branch
+    // is the merge that brought it in, unless the branch sits on that mainline itself (it never had
+    // commits of its own, or was fast-forwarded): then nothing tells its commits from the base's
+    const merge = lines(
+      await this.try(
+        this.exec(repo, ['rev-list', '--first-parent', '--ancestry-path', `${ref}..${base}`, '--']),
+        ''
+      )
+    ).pop();
+    if (!merge) return { authors: [], unique: 0 };
+    const [tip, before] = lines(await this.exec(repo, ['rev-parse', ref, `${merge}^1`]));
+    if (tip === before) return { authors: [], unique: 0 };
+    return { authors: await authorsOf(`${merge}^1..${ref}`), mergedBy: merge, unique: 0 };
   }
 
   /** A worktree (any folder of this repository) compared with `base`, and what it hasn't committed. */

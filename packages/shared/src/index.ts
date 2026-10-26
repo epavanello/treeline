@@ -77,6 +77,8 @@ export type Side = 'ahead' | 'behind' | 'same';
 
 export interface Compare {
   base: string;
+  /** The commit the base points to. */
+  baseHash: string;
   /** Commits on HEAD whose changes are not on the base. */
   ahead: number;
   /** Commits on the base whose changes are not on HEAD. */
@@ -96,6 +98,70 @@ export interface Compare {
    */
   rewritten: boolean;
 }
+
+/**
+ * Who a branch belongs to and whether it is merged, relative to the compare base: loaded one branch
+ * at a time after each graph load (see `HostApi.getBranchDetails`).
+ */
+export interface BranchDetails {
+  /**
+   * Authors of its own commits (merge commits aside), most commits first: the ones the base doesn't
+   * have or, once merged with a merge commit, the ones that merge brought in. Empty when nothing
+   * tells them apart from the base's (it never had commits of its own, or was fast-forwarded).
+   */
+  authors: BranchAuthor[];
+  /** The merge commit on the base its commits came in with, when `authors` come from there. */
+  mergedBy?: string;
+  /**
+   * Its commits whose changes are not on the base, copies (rebased, cherry-picked, "rebase and
+   * merge"d) aside: 0 = merged.
+   */
+  unique: number;
+}
+
+export interface BranchAuthor {
+  name: string;
+  email: string;
+  commits: number;
+}
+
+/** A GitHub pull request opened from one of the repository's branches (see `HostApi.getPullRequests`). */
+export interface PullRequest {
+  number: number;
+  title: string;
+  url: string;
+  state: 'open' | 'draft' | 'merged' | 'closed';
+  /** GitHub login of who opened it. */
+  author: string;
+  /** Unix seconds. */
+  updatedAt: number;
+  /** The branch it was opened from, as named on the remote, and the commit it was last at. */
+  head: string;
+  headOid: string;
+  /** The branch it goes into. */
+  base: string;
+  /** The review verdict GitHub shows; null when the repository requires none and nobody gave one. */
+  decision: 'approved' | 'changes' | 'required' | null;
+  /** Everyone asked for a review or who gave one, with their latest verdict. */
+  reviewers: {
+    login: string;
+    state: 'approved' | 'changes' | 'commented' | 'requested' | 'dismissed';
+  }[];
+  /** Review conversations (comment threads on the code). */
+  threads: { resolved: number; unresolved: number };
+  /** Checks on its latest commit; null when it has none. */
+  checks: 'passing' | 'failing' | 'pending' | null;
+}
+
+/**
+ * The repository's pull requests, or why there are none: not on GitHub (`none`), no access yet
+ * (`signin`: neither the gh CLI nor the editor's GitHub account can read it), or a failure.
+ */
+export type PullRequests =
+  | { status: 'ok'; via: 'gh' | 'editor'; repo: string; prs: PullRequest[] }
+  | { status: 'none' }
+  | { status: 'signin'; repo: string }
+  | { status: 'error'; message: string };
 
 /** A worktree compared with a base, and its uncommitted changes: loaded when its card opens. */
 export interface WorktreeDetails {
@@ -120,6 +186,8 @@ export interface GraphData {
   remoteHeads: RefSummary[];
   /** HEAD vs the base branch; null when there is no HEAD or no base. */
   compare: Compare | null;
+  /** The configured git identity (user.name, user.email), for "mine" filters. */
+  user: { name: string; email: string } | null;
   hasMore: boolean;
 }
 
@@ -205,6 +273,8 @@ export type Action =
   | { type: 'renameBranch'; name: string }
   | { type: 'deleteBranch'; name: string }
   | { type: 'deleteRemoteBranch'; name: string; remote: string }
+  /** Deletes local branches and remote ones (`origin/x`) at once, after one confirmation. */
+  | { type: 'deleteBranches'; local: string[]; remote: { name: string; remote: string }[] }
   | { type: 'pushBranch'; name: string; force?: boolean }
   | { type: 'pullBranch'; name: string; remote: string }
   /** Brings a local branch up to date with its upstream, wherever it is checked out (or not). */
@@ -243,9 +313,16 @@ export type Action =
    * `base` (default: the repository's default base) or from another branch.
    */
   | { type: 'newWorktree'; base?: string }
-  /** Optionally deletes the branch that was checked out there too. */
-  | { type: 'removeWorktree'; path: string; deleteBranch?: string }
+  /** Optionally deletes the branch that was checked out there too, and its copy on the remote. */
+  | {
+      type: 'removeWorktree';
+      path: string;
+      deleteBranch?: string;
+      deleteRemote?: { name: string; remote: string };
+    }
   /** Removes the worktree and checks its branch out in the main worktree, carrying its changes. */
+  /** Removes several worktrees after one confirmation, which also offers to delete their branches. */
+  | { type: 'removeWorktrees'; paths: string[] }
   | { type: 'bringWorktreeHere'; path: string; branch: string }
   | { type: 'pruneWorktrees' };
 
@@ -288,6 +365,29 @@ export interface HostApi {
   generateCommitMessage(repo: string): Promise<void>;
   copy(text: string): Promise<void>;
   getWorktreeDetails(path: string, base: string | null): Promise<WorktreeDetails>;
+  /**
+   * Several branches at once, by full ref name (`refs/heads/x`, `refs/remotes/origin/x`); `base` is
+   * a branch name. `key` says which commits they were asked for (branch and base): answers are kept
+   * across sessions by it.
+   */
+  getBranchDetails(
+    repo: string,
+    refs: { ref: string; key: string }[],
+    base: string
+  ): Promise<Record<string, BranchDetails>>;
+  /**
+   * How the graph of a repository was last set up (hidden branches, filters, base…), shared by all
+   * its worktrees and windows; the webview decides what's in it. Null the first time.
+   */
+  getRepoView(repo: string): Promise<Record<string, unknown> | null>;
+  setRepoView(repo: string, view: Record<string, unknown>): Promise<void>;
+  /** A line in the Treeline output channel (timings, for diagnosing slow repositories). */
+  log(message: string): Promise<void>;
+  /** Cached for a minute; `fresh` asks GitHub again (after a fetch, say). */
+  getPullRequests(repo: string, fresh?: boolean): Promise<PullRequests>;
+  /** Signs in with the editor's GitHub account (it asks for consent), then loads them. */
+  connectGitHub(repo: string): Promise<PullRequests>;
+  openUrl(url: string): Promise<void>;
   getView(): Promise<ViewSettings>;
   setView(view: ViewSettings): Promise<void>;
 }
@@ -314,6 +414,8 @@ export function actionTarget(a: Action): string {
     case 'fetch':
     case 'pruneWorktrees':
     case 'newWorktree':
+    case 'deleteBranches':
+    case 'removeWorktrees':
       return a.type;
   }
   if ('path' in a) return a.path;

@@ -12,16 +12,62 @@ import {
   type RefSummary,
   type Worktree
 } from '@treeline/shared';
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  ArrowUpToLine,
+  Cherry,
+  Copy,
+  Crosshair,
+  Eraser,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  FolderInput,
+  FolderMinus,
+  FolderOpen,
+  FolderPlus,
+  FolderX,
+  GitBranchPlus,
+  GitCommitHorizontal,
+  GitCompare,
+  GitMerge,
+  GitPullRequest,
+  Layers,
+  ListFilter,
+  ListMinus,
+  LogIn,
+  Minus,
+  PackageOpen,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Sparkles,
+  Tag,
+  Trash2,
+  Undo2
+} from '@lucide/svelte';
 import { app } from './app.svelte';
 import type { Hint } from './components/Tip.svelte';
+import { isBase, pullsOf } from './filters';
 import { host } from './rpc';
 
 export type MenuTarget =
   { kind: 'commit'; commit: Commit } | { kind: 'ref'; ref: Ref; commit: Commit };
 
-export type MenuItem = { label: string; run: () => unknown; hint?: Hint } | 'separator';
+type Icon = typeof Copy;
+/**
+ * An action, a submenu (`items`) or a separator. `icon` sits before the label; `destructive` items
+ * (deleting, discarding) are drawn in the warning color.
+ */
+export type MenuItem =
+  | { label: string; run: () => unknown; hint?: Hint; icon?: Icon; destructive?: boolean }
+  | { label: string; items: MenuItem[]; icon?: Icon; destructive?: boolean }
+  | 'separator';
 
-const run = (action: Action) => () => app.repo && host.run(app.repo, action);
+const run = (action: Action) => () => app.run(action);
 const copy = (text: string) => () => host.copy(text);
 const sep = 'separator' as const;
 /** Spread helper: `...when(cond, items)`. */
@@ -33,13 +79,15 @@ const REWRITES = 'Rewrites commits: if they were already pushed you will need to
 export function menuItems(target: MenuTarget): MenuItem[] {
   const current = app.data?.currentBranch;
   const here = current ?? 'HEAD';
-  const compareWith = (name: string): MenuItem => ({
-    label: `Compare ${here} with ${name}`,
+  const compareWith = (name: string, label = `Compare ${here} with ${name}`): MenuItem => ({
+    label,
+    icon: GitCompare,
     run: () => app.setBase(name),
     hint: `Makes ${name} the base of the compare bar: see what ${here} has that ${name} doesn't (↑, green) and what ${name} has that ${here} doesn't (↓, blue).`
   });
   const merge = (name: string, label = name): MenuItem => ({
     label: `Merge into ${here}`,
+    icon: GitMerge,
     run: run({ type: 'merge', target: name }),
     hint: {
       body: `Brings the commits of ${label} that ${here} doesn't have into ${here}: a fast-forward when possible, otherwise a merge commit. Existing commits are untouched.`,
@@ -49,6 +97,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
   });
   const rebase = (name: string, label: string): MenuItem => ({
     label,
+    icon: Layers,
     run: run({ type: 'rebase', target: name }),
     hint: {
       body: `Replays the commits of ${here} on top of ${name}, for a straight history that includes everything in ${name}.`,
@@ -68,6 +117,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           ...when(!isCurrent && !worktree, [
             {
               label: 'Checkout',
+              icon: LogIn,
               run: run({ type: 'checkoutBranch', name: ref.name }),
               hint: {
                 body: `Switches this folder to ${ref.name}. Uncommitted changes come along when they don't conflict.`,
@@ -76,6 +126,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
             },
             {
               label: 'Add Worktree',
+              icon: FolderPlus,
               run: run({ type: 'addWorktree', target: ref.name, isBranch: true }),
               hint: {
                 body: `Checks ${ref.name} out in a new folder next to this repository, to work on it in parallel without switching branches here. Offers to open it when ready.`,
@@ -85,17 +136,23 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           ]),
           ...worktreeItems(app.data?.worktrees.find((w) => w.path === worktree)),
           sep,
-          ...visibility(ref.name),
-          sep,
+          visibility(ref.name),
           ...when(!isCurrent, [
-            compareWith(ref.name),
-            merge(ref.name),
-            rebase(ref.name, `Rebase ${here} onto ${ref.name}`),
-            sep
+            {
+              label: `With ${here}`,
+              icon: GitCompare,
+              items: [
+                compareWith(ref.name, 'Compare'),
+                merge(ref.name),
+                rebase(ref.name, `Rebase ${here} onto it`)
+              ]
+            }
           ]),
+          sep,
           ...when(up && !up.gone, [
             {
               label: up?.behind ? `Pull ↓${up.behind}` : 'Pull',
+              icon: ArrowDownToLine,
               run: run({ type: 'updateBranch', name: ref.name }),
               hint: isCurrent
                 ? {
@@ -116,6 +173,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           ]),
           {
             label: up?.ahead ? `Push ↑${up.ahead}` : 'Push',
+            icon: ArrowUpFromLine,
             run: run({ type: 'pushBranch', name: ref.name }),
             hint: {
               body: up
@@ -126,6 +184,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           },
           {
             label: 'Force Push…',
+            icon: ArrowUpToLine,
             run: run({ type: 'pushBranch', name: ref.name, force: true }),
             hint: {
               body: `Replaces the remote ${ref.name} with yours, after a rebase or an amend. With lease: refuses if someone pushed meanwhile.`,
@@ -136,24 +195,17 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           sep,
           {
             label: 'Rename…',
+            icon: Pencil,
             run: run({ type: 'renameBranch', name: ref.name }),
             hint: {
               body: `Renames the local branch. A branch on the remote keeps its old name.`,
               command: `git branch -m ${ref.name} <new name>`
             }
           },
-          ...when(!isCurrent && !worktree, [
-            {
-              label: 'Delete',
-              run: run({ type: 'deleteBranch', name: ref.name }),
-              hint: {
-                body: `Deletes the local branch. Asks first only if it has commits that no other branch, remote branch or tag contains.`,
-                command: `git branch -D ${ref.name}`
-              }
-            }
-          ]),
+          ...deleteItems(ref),
+          ...pullItems(ref),
           sep,
-          { label: 'Copy Branch Name', run: copy(ref.name) }
+          { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
         ];
       }
       case 'remote': {
@@ -161,6 +213,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
         return [
           {
             label: 'Checkout',
+            icon: LogIn,
             run: run({ type: 'checkoutBranch', name: ref.name, remote: ref.remote }),
             hint: {
               body: `Switches to your local ${local}, creating it to track ${ref.name} if it doesn't exist yet.`,
@@ -169,6 +222,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           },
           {
             label: 'Add Worktree…',
+            icon: FolderPlus,
             run: run({ type: 'addWorktree', target: ref.name, suggest: local }),
             hint: {
               body: `Creates a local branch from ${ref.name} (name suggested, editable) in a new folder next to this repository.`,
@@ -176,32 +230,30 @@ export function menuItems(target: MenuTarget): MenuItem[] {
             }
           },
           sep,
-          ...visibility(ref.name),
+          visibility(ref.name),
+          {
+            label: `With ${here}`,
+            icon: GitCompare,
+            items: [
+              compareWith(ref.name, 'Compare'),
+              merge(ref.name),
+              ...when(ref.remote, [
+                {
+                  label: `Pull into ${here}`,
+                  icon: ArrowDownToLine,
+                  run: run({ type: 'pullBranch', name: ref.name, remote: ref.remote! }),
+                  hint: {
+                    body: `Downloads the latest ${local} from ${ref.remote} and merges it into ${here}.`,
+                    command: `git pull ${ref.remote} ${local}`
+                  }
+                }
+              ])
+            ]
+          },
+          ...deleteItems(ref),
+          ...pullItems(ref),
           sep,
-          compareWith(ref.name),
-          merge(ref.name),
-          ...when(ref.remote, [
-            {
-              label: `Pull into ${here}`,
-              run: run({ type: 'pullBranch', name: ref.name, remote: ref.remote! }),
-              hint: {
-                body: `Downloads the latest ${local} from ${ref.remote} and merges it into ${here}.`,
-                command: `git pull ${ref.remote} ${local}`
-              }
-            },
-            sep,
-            {
-              label: 'Delete Remote Branch…',
-              run: run({ type: 'deleteRemoteBranch', name: ref.name, remote: ref.remote! }),
-              hint: {
-                body: `Deletes ${local} on ${ref.remote}, for everyone. Your local branch, if any, stays.`,
-                warn: 'Affects everyone using the remote. Asks first.',
-                command: `git push ${ref.remote} --delete ${local}`
-              }
-            }
-          ]),
-          sep,
-          { label: 'Copy Branch Name', run: copy(ref.name) }
+          { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
         ];
       }
       case 'tag':
@@ -210,6 +262,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           sep,
           {
             label: 'Push Tag',
+            icon: ArrowUpFromLine,
             run: run({ type: 'pushTag', name: ref.name }),
             hint: {
               body: 'Uploads the tag to the remote.',
@@ -218,6 +271,8 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           },
           {
             label: 'Delete Tag',
+            icon: Trash2,
+            destructive: true,
             run: run({ type: 'deleteTag', name: ref.name }),
             hint: {
               body: 'Deletes the local tag. A tag already pushed stays on the remote.',
@@ -225,7 +280,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
             }
           },
           sep,
-          { label: 'Copy Tag Name', run: copy(ref.name) }
+          { label: 'Copy Tag Name', icon: Copy, run: copy(ref.name) }
         ];
       case 'stash':
         return stashItems(target.commit, ref.name);
@@ -237,6 +292,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     return [
       {
         label: 'Generate Commit Message with Claude',
+        icon: Sparkles,
         run: () => app.repo && host.generateCommitMessage(app.repo),
         hint: {
           body: 'Writes a message for the staged changes (or all of them if nothing is staged) with your local Claude Code CLI, in the style of your recent commits, and puts it in the Source Control box. Review it, then commit with ⌘/Ctrl+Enter.',
@@ -245,12 +301,14 @@ export function menuItems(target: MenuTarget): MenuItem[] {
       },
       {
         label: 'Open Source Control',
+        icon: GitCommitHorizontal,
         run: () => host.openScm(),
         hint: 'Opens the Source Control view to stage files and commit.'
       },
       sep,
       {
         label: 'Stash…',
+        icon: Archive,
         run: run({ type: 'stashPush' }),
         hint: {
           body: 'Saves every uncommitted change, untracked files included, and leaves the working tree clean. The message is optional.',
@@ -259,6 +317,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
       },
       {
         label: 'Unstage All',
+        icon: ListMinus,
         run: run({ type: 'unstageAll' }),
         hint: {
           body: 'Moves every staged change back to unstaged. Nothing is lost.',
@@ -267,6 +326,8 @@ export function menuItems(target: MenuTarget): MenuItem[] {
       },
       {
         label: 'Discard All Changes…',
+        icon: Trash2,
+        destructive: true,
         run: run({ type: 'discardAll' }),
         hint: {
           body: 'Throws away every uncommitted change and every untracked file.',
@@ -284,6 +345,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
   return [
     {
       label: 'Create Branch…',
+      icon: GitBranchPlus,
       run: run({ type: 'createBranch', hash: commit.hash }),
       hint: {
         body: `Creates a branch at ${at} and switches to it.`,
@@ -292,6 +354,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     },
     {
       label: 'Add Tag…',
+      icon: Tag,
       run: run({ type: 'addTag', hash: commit.hash }),
       hint: {
         body: `Tags ${at}. Suggests the next version after your latest one (patch, minor, major), or any name you type; then offers to push it.`,
@@ -300,6 +363,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     },
     {
       label: 'Open in Temporary Worktree',
+      icon: FolderOpen,
       run: run({ type: 'addWorktree', target: commit.hash, detach: true, open: true }),
       hint: {
         body: `Checks ${at} out in a new folder and opens it in a new window: a real checkout, so Go to Definition, errors and builds work on that version. Remove the worktree when you're done.`,
@@ -308,6 +372,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     },
     {
       label: 'Add Worktree…',
+      icon: FolderPlus,
       run: run({ type: 'addWorktree', target: commit.hash }),
       hint: {
         body: `Creates a new branch at ${at} in a new folder next to this repository (leave the name empty for a detached HEAD).`,
@@ -317,6 +382,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     sep,
     {
       label: 'Checkout (Detached)',
+      icon: LogIn,
       run: run({ type: 'checkoutCommit', hash: commit.hash }),
       hint: {
         body: `Moves this folder to ${at} without a branch ("detached HEAD"): fine to look around or build. Create a branch before committing.`,
@@ -325,6 +391,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     },
     {
       label: `Cherry Pick into ${here}`,
+      icon: Cherry,
       run: run({ type: 'cherryPick', hash: commit.hash, parents: commit.parents.length }),
       hint: {
         body: `Copies the changes of ${at} onto ${here} as a new commit.${mainline ? ' For a merge commit, relative to its first parent.' : ''}`,
@@ -334,6 +401,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     },
     {
       label: 'Revert',
+      icon: Undo2,
       run: run({ type: 'revert', hash: commit.hash, parents: commit.parents.length }),
       hint: {
         body: `Adds a new commit to ${here} that undoes ${at}. History is kept, so it's safe on shared branches.`,
@@ -345,6 +413,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
     rebase(commit.hash, `Rebase ${here} onto this Commit`),
     {
       label: `Reset ${here} to this Commit…`,
+      icon: RotateCcw,
       run: run({ type: 'reset', hash: commit.hash }),
       hint: {
         body: `Moves ${here} back (or forward) to ${at}. You pick: Soft keeps the changes staged, Mixed keeps them unstaged, Hard discards them.`,
@@ -353,49 +422,58 @@ export function menuItems(target: MenuTarget): MenuItem[] {
       }
     },
     sep,
-    { label: 'Copy Commit Hash', run: copy(commit.hash) },
-    { label: 'Copy Commit Subject', run: copy(commit.subject) }
+    { label: 'Copy Commit Hash', icon: Copy, run: copy(commit.hash) },
+    { label: 'Copy Commit Subject', icon: Copy, run: copy(commit.subject) }
   ];
 }
 
 /** Show only a branch, add it to or remove it from the shown ones, or hide it from "all". */
-function visibility(name: string): MenuItem[] {
+function visibility(name: string): MenuItem {
   const shown = app.branches.includes(name);
   const hidden = app.hidden.includes(name);
-  return [
-    ...when(!(shown && app.branches.length === 1), [
-      {
-        label: 'Show Only This Branch',
-        run: () => app.setBranches([name]),
-        hint: `The graph shows just the history of ${name}.`
-      }
-    ]),
-    ...when(app.branches.length && !shown, [
-      {
-        label: 'Also Show This Branch',
-        run: () => app.setBranches([...app.branches, name]),
-        hint: `Adds ${name} to the branches the graph shows.`
-      }
-    ]),
-    ...when(shown, [
-      {
-        label: 'Stop Showing This Branch',
-        run: () => app.setBranches(app.branches.filter((b) => b !== name)),
-        hint: `Removes ${name} from the branches the graph shows.`
-      }
-    ]),
-    hidden
-      ? {
-          label: 'Unhide This Branch',
-          run: () => app.toggleHidden(name),
-          hint: `Brings the commits only ${name} has back into the graph.`
+  return {
+    label: 'Graph Filter',
+    icon: ListFilter,
+    items: [
+      ...when(!(shown && app.branches.length === 1), [
+        {
+          label: 'Show Only This Branch',
+          icon: Crosshair,
+          run: () => app.setBranches([name]),
+          hint: `The graph shows just the history of ${name}.`
         }
-      : {
-          label: 'Hide This Branch',
-          run: () => app.toggleHidden(name),
-          hint: `Leaves out the commits only ${name} has; what it shares with other branches stays. Undo it from the Branches filter or this menu.`
+      ]),
+      ...when(app.branches.length && !shown, [
+        {
+          label: 'Also Show This Branch',
+          icon: Plus,
+          run: () => app.setBranches([...app.branches, name]),
+          hint: `Adds ${name} to the branches the graph shows.`
         }
-  ];
+      ]),
+      ...when(shown, [
+        {
+          label: 'Stop Showing This Branch',
+          icon: Minus,
+          run: () => app.setBranches(app.branches.filter((b) => b !== name)),
+          hint: `Removes ${name} from the branches the graph shows.`
+        }
+      ]),
+      hidden
+        ? {
+            label: 'Unhide This Branch',
+            icon: Eye,
+            run: () => app.toggleHidden(name),
+            hint: `Brings the commits only ${name} has back into the graph.`
+          }
+        : {
+            label: 'Hide This Branch',
+            icon: EyeOff,
+            run: () => app.toggleHidden(name),
+            hint: `Leaves out the commits only ${name} has; what it shares with other branches stays. Undo it from the Branches filter or this menu.`
+          }
+    ]
+  };
 }
 
 /** The loaded commit a branch or tag points to, or a stand-in carrying what the menus need. */
@@ -417,6 +495,7 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
     return [
       {
         label: 'Prune Missing Worktrees',
+        icon: Eraser,
         run: run({ type: 'pruneWorktrees' }),
         hint: {
           body: "Forgets worktrees whose folder was deleted by hand. Branches aren't touched.",
@@ -430,6 +509,7 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
     ...when(!w.current, [
       {
         label: 'Open Worktree in New Window',
+        icon: ExternalLink,
         run: () => host.openFolder(w.path),
         hint: `Opens ${w.path} in a new editor window.`
       }
@@ -437,6 +517,7 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
     ...when(other && w.branch, [
       {
         label: 'Bring to Main Worktree',
+        icon: FolderInput,
         run: run({ type: 'bringWorktreeHere', path: w.path, branch: w.branch! }),
         hint: {
           body: `Removes this worktree and checks ${w.branch} out in ${main}, carrying its uncommitted changes along (through a stash). Nothing to confirm.`,
@@ -445,28 +526,9 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
         }
       }
     ]),
-    ...when(other, [
-      {
-        label: 'Remove Worktree',
-        run: run({ type: 'removeWorktree', path: w.path }),
-        hint: {
-          body: 'Deletes the worktree folder; the branch stays. Asks first only if the folder has uncommitted changes.',
-          command: `git worktree remove ${w.path}`
-        }
-      },
-      ...when(w.branch, [
-        {
-          label: 'Remove Worktree and Delete Branch',
-          run: run({ type: 'removeWorktree', path: w.path, deleteBranch: w.branch! }),
-          hint: {
-            body: `Deletes the folder and ${w.branch} in one go. Asks once, listing what would be lost: uncommitted changes, commits that only this branch has.`,
-            command: `git worktree remove ${w.path} && git branch -D ${w.branch}`
-          }
-        }
-      ])
-    ]),
+    ...when(other, [removeWorktree(w)]),
     sep,
-    { label: 'Copy Worktree Path', run: copy(w.path) }
+    { label: 'Copy Worktree Path', icon: Copy, run: copy(w.path) }
   ];
 }
 
@@ -474,6 +536,7 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
   return [
     {
       label: 'Apply Stash',
+      icon: ArchiveRestore,
       run: run({ type: 'stashApply', selector }),
       hint: {
         body: 'Restores the stashed changes into the working tree and keeps the stash.',
@@ -482,6 +545,7 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
     },
     {
       label: 'Pop Stash',
+      icon: PackageOpen,
       run: run({ type: 'stashPop', selector }),
       hint: {
         body: 'Restores the stashed changes and deletes the stash when they apply cleanly.',
@@ -490,6 +554,7 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
     },
     {
       label: 'Create Branch from Stash…',
+      icon: GitBranchPlus,
       run: run({ type: 'stashBranch', selector }),
       hint: {
         body: 'Creates a branch at the commit the stash was taken on, restores the stash there and drops it. Handy when it no longer applies cleanly.',
@@ -498,6 +563,8 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
     },
     {
       label: 'Drop Stash…',
+      icon: Trash2,
+      destructive: true,
       run: run({ type: 'stashDrop', selector }),
       hint: {
         body: 'Deletes the stash.',
@@ -506,7 +573,157 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
       }
     },
     sep,
-    { label: 'Copy Stash Name', run: copy(selector) },
-    { label: 'Copy Stash Hash', run: copy(commit.hash) }
+    { label: 'Copy Stash Name', icon: Copy, run: copy(selector) },
+    { label: 'Copy Stash Hash', icon: Copy, run: copy(commit.hash) }
   ];
+}
+
+const PR_STATE = { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' } as const;
+
+/** The pull requests opened from the branch: one item, or a submenu when there are several. */
+function pullItems(ref: Ref): MenuItem[] {
+  const row = app.rowOf.get(ref.name);
+  const prs = row ? pullsOf(row, app.filterContext.pulls).slice(0, 5) : [];
+  const item = (p: (typeof prs)[number], label: string): MenuItem => ({
+    label,
+    icon: GitPullRequest,
+    run: () => host.openUrl(p.url),
+    hint: { title: p.title, body: `${PR_STATE[p.state]}, by ${p.author}. Opens it on GitHub.` }
+  });
+  if (prs.length < 2) return [sep, ...prs.map((p) => item(p, `Open Pull Request #${p.number}`))];
+  return [
+    sep,
+    {
+      label: 'Pull Requests',
+      icon: GitPullRequest,
+      items: prs.map((p) => item(p, `#${p.number} ${PR_STATE[p.state].toLowerCase()}: ${p.title}`))
+    }
+  ];
+}
+
+/**
+ * Deleting a branch, whichever copies there are: the local one (asks only if commits would be
+ * lost), the remote one (always asks: it's gone for everyone), or both at once (one confirmation).
+ * One item when only one of them can go, a submenu otherwise.
+ */
+function deleteItems(ref: Ref): MenuItem[] {
+  const row = app.rowOf.get(ref.name);
+  const local = row?.local ?? (ref.kind === 'head' ? { ref } : undefined);
+  const remote = row?.remote ?? (ref.kind === 'remote' ? { ref } : undefined);
+  const base = app.data?.compare?.base;
+  const localOk =
+    !!local &&
+    !local.ref.worktree &&
+    local.ref.name !== app.data?.currentBranch &&
+    !(row?.local && isBase(row.local, base));
+  const remoteOk = !!remote?.ref.remote && !(row?.remote && isBase(row.remote, base));
+  const r = remote?.ref;
+  const short = r?.remote ? r.name.slice(r.remote.length + 1) : '';
+  const localItem = (label: string): MenuItem => ({
+    label,
+    icon: Trash2,
+    destructive: true,
+    run: run({ type: 'deleteBranch', name: local!.ref.name }),
+    hint: {
+      body: `Deletes your local ${local!.ref.name}. Asks first only if it has commits that no other branch, remote branch or tag contains.`,
+      command: `git branch -D ${local!.ref.name}`
+    }
+  });
+  const remoteItem = (label: string): MenuItem => ({
+    label,
+    icon: Trash2,
+    destructive: true,
+    run: run({ type: 'deleteRemoteBranch', name: r!.name, remote: r!.remote! }),
+    hint: {
+      body: `Deletes ${short} on ${r!.remote}, for everyone.${localOk ? ' Your local branch stays.' : ''}`,
+      warn: 'Affects everyone using the remote. Asks first.',
+      command: `git push ${r!.remote} --delete ${short}`
+    }
+  });
+  if (localOk && remoteOk)
+    return [
+      sep,
+      {
+        label: 'Delete',
+        icon: Trash2,
+        destructive: true,
+        items: [
+          {
+            label: 'Local and Remote…',
+            icon: Trash2,
+            destructive: true,
+            run: run({
+              type: 'deleteBranches',
+              local: [local!.ref.name],
+              remote: [{ name: r!.name, remote: r!.remote! }]
+            }),
+            hint: {
+              body: `Deletes ${local!.ref.name} here and on ${r!.remote}, after one confirmation saying what would be lost.`,
+              command: `git branch -D ${local!.ref.name} · git push ${r!.remote} --delete ${short}`
+            }
+          },
+          localItem('Only Local'),
+          remoteItem(`Only on ${r!.remote}…`)
+        ]
+      }
+    ];
+  if (localOk) return [sep, localItem('Delete')];
+  if (remoteOk) return [sep, remoteItem('Delete Remote Branch…')];
+  return [];
+}
+
+/**
+ * Removing a worktree: just the folder, or its branch too, or its branch and the branch's copy on the
+ * remote. One item when it has no branch, a submenu otherwise.
+ */
+function removeWorktree(w: Worktree): MenuItem {
+  const folderOnly: MenuItem = {
+    label: w.branch ? 'Only the Folder' : 'Remove Worktree',
+    icon: FolderMinus,
+    destructive: true,
+    run: run({ type: 'removeWorktree', path: w.path }),
+    hint: {
+      body: `Deletes the worktree folder${w.branch ? `; ${w.branch} stays` : ''}. Asks first only if the folder has uncommitted changes.`,
+      command: `git worktree remove ${w.path}`
+    }
+  };
+  if (!w.branch) return folderOnly;
+  const remote = app.rowOf.get(w.branch)?.remote?.ref;
+  const short = remote?.remote ? remote.name.slice(remote.remote.length + 1) : '';
+  return {
+    label: 'Remove Worktree',
+    icon: FolderMinus,
+    destructive: true,
+    items: [
+      folderOnly,
+      {
+        label: 'And Its Branch',
+        icon: FolderX,
+        destructive: true,
+        run: run({ type: 'removeWorktree', path: w.path, deleteBranch: w.branch }),
+        hint: {
+          body: `Deletes the folder and ${w.branch} in one go${remote ? `; ${remote.name} stays on the remote` : ''}. Asks once, only if something would be lost: uncommitted changes, commits that only this branch has.`,
+          command: `git worktree remove ${w.path} && git branch -D ${w.branch}`
+        }
+      },
+      ...when(remote?.remote, [
+        {
+          label: `And Its Branch, on ${remote?.remote} Too…`,
+          icon: Trash2,
+          destructive: true,
+          run: run({
+            type: 'removeWorktree',
+            path: w.path,
+            deleteBranch: w.branch,
+            deleteRemote: { name: remote!.name, remote: remote!.remote! }
+          }),
+          hint: {
+            body: `Deletes the folder, ${w.branch}, and ${short} on ${remote?.remote}: what you do once its pull request is merged.`,
+            warn: 'Deleting on the remote affects everyone. Asks first.',
+            command: `git worktree remove ${w.path} · git branch -D ${w.branch} · git push ${remote?.remote} --delete ${short}`
+          }
+        }
+      ])
+    ]
+  };
 }

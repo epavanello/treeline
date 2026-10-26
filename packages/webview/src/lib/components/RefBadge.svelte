@@ -1,9 +1,21 @@
 <script lang="ts">
   import type { Ref, WorktreeStatus } from '@treeline/shared';
-  import { Archive, Cloud, FolderGit2, GitBranch, LoaderCircle, Tag } from '@lucide/svelte';
+  import {
+    Archive,
+    Cloud,
+    CloudOff,
+    FolderGit2,
+    GitBranch,
+    LoaderCircle,
+    Tag
+  } from '@lucide/svelte';
   import type { RefSummary } from '@treeline/shared';
+  import { app } from '$lib/app.svelte';
+  import { owner } from '$lib/filters';
   import { cn } from '$lib/utils';
+  import AuthorAvatar from './AuthorAvatar.svelte';
   import RefCard from './RefCard.svelte';
+  import RefName from './RefName.svelte';
   import Tip from './Tip.svelte';
   import WorktreeState, { describeStatus } from './WorktreeState.svelte';
 
@@ -37,6 +49,13 @@
       ? FolderGit2
       : { head: GitBranch, remote: Cloud, tag: Tag, stash: Archive }[ref.kind]
   );
+  // Like the branch chips: whose it is, and a cloud for where it lives
+  const o = $derived(
+    ref.kind === 'head' || ref.kind === 'remote' ? owner(app.branchDetails[ref.name]) : null
+  );
+  const up = $derived(ref.kind === 'head' ? ref.upstream : undefined);
+  /** With one remote, its name says nothing the cloud doesn't. */
+  const manyRemotes = $derived((app.data?.remotes.length ?? 0) > 1);
 </script>
 
 <!-- Branches and tags show the same card as everywhere else (RefCard); stashes a plain title -->
@@ -68,7 +87,7 @@
       {:else}
         <Icon class="size-3 shrink-0" />
       {/if}
-      <span class="truncate">{ref.name}</span>
+      <span class="truncate"><RefName {ref} /></span>
       {#if remote}
         <span
           class="flex shrink-0 items-center gap-0.5 rounded-sm border-l border-current/30 pl-1 opacity-80 data-menu-open:bg-current/15"
@@ -76,8 +95,32 @@
           title="{remote.name}: same commit · right-click for the remote branch's actions"
           oncontextmenu={(e) => onremotemenu?.(e, remote)}
         >
-          <Cloud class="size-3" />{remote.remote}
+          <Cloud class="size-3 fill-current" />{#if manyRemotes}{remote.remote}{/if}
         </span>
+      {:else if ref.kind === 'head'}
+        {#if !up || up.gone}
+          <span
+            class={cn('inline-flex shrink-0', up?.gone ? 'text-dirty' : 'opacity-50')}
+            title={up ? `${up.name} was deleted on the remote` : 'Never pushed'}
+          >
+            <CloudOff class="size-3" />
+          </span>
+        {:else}
+          <!-- Its upstream is elsewhere in the graph (or remote branches are hidden) -->
+          <span
+            class="inline-flex shrink-0 items-center gap-0.5 text-[10px] tabular-nums opacity-80"
+            title="{up.name}{up.ahead || up.behind
+              ? `: ${[up.ahead && `${up.ahead} to push`, up.behind && `${up.behind} to pull`].filter(Boolean).join(', ')}`
+              : ', in sync'}"
+          >
+            <Cloud
+              class="size-3 fill-current"
+            />{#if up.ahead}↑{up.ahead}{/if}{#if up.behind}↓{up.behind}{/if}
+          </span>
+        {/if}
+      {/if}
+      {#if o}
+        <AuthorAvatar name={o.name} email={o.email} class="size-3.5" />
       {/if}
       {#if status}
         <WorktreeState {status} />

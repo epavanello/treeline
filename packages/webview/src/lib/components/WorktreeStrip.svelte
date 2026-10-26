@@ -1,29 +1,148 @@
 <script lang="ts">
   import { ago, type Worktree } from '@treeline/shared';
-  import { FolderGit2, LoaderCircle, Plus, TriangleAlert } from '@lucide/svelte';
+  import { FolderGit2, LoaderCircle, Plus, Trash2, TriangleAlert } from '@lucide/svelte';
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
+  import {
+    CLEANUP,
+    DEFAULT_WORKTREE_FILTER,
+    owner,
+    removable,
+    STALE,
+    worktreeMatches,
+    type WorktreeFilter
+  } from '$lib/filters';
   import { worktreeItems } from '$lib/menus';
   import { host } from '$lib/rpc';
   import { Button } from '$lib/components/ui/button';
   import { cn } from '$lib/utils';
   import ActionMenu from './ActionMenu.svelte';
+  import AuthorAvatar from './AuthorAvatar.svelte';
+  import AuthorStack from './AuthorStack.svelte';
+  import FilterMenu from './FilterMenu.svelte';
+  import { CARD_LIST } from './RefCard.svelte';
   import NavStrip from './NavStrip.svelte';
   import Tip from './Tip.svelte';
   import WorktreeState from './WorktreeState.svelte';
 
-  /** Every worktree of the repository (the main one included), one chip each. */
-  const worktrees = $derived(app.data?.worktrees ?? []);
+  /**
+   * Every worktree of the repository, one chip each, filtered from the title: the main one and the
+   * one this graph shows first, then the others by their latest commit, like the branches. (git
+   * lists them main first, then by folder name: `data.worktrees` keeps that order, which the
+   * actions rely on.)
+   */
+  const all = $derived(
+    [...(app.data?.worktrees ?? [])].sort(
+      (a, b) =>
+        +b.main - +a.main || +b.current - +a.current || (b.headDate ?? 0) - (a.headDate ?? 0)
+    )
+  );
+  const f = $derived(app.worktreeFilter);
+  const worktrees = $derived(
+    all.filter((w) =>
+      worktreeMatches(w, f, app.worktreeDetails[w.path]?.compare, app.filterContext)
+    )
+  );
+  const active = $derived(
+    (Object.keys(f) as (keyof WorktreeFilter)[]).some((k) => f[k] !== DEFAULT_WORKTREE_FILTER[k])
+  );
+  const cleanup = $derived(CLEANUP.worktrees.includes(f.state) ? worktrees.filter(removable) : []);
+  const base = $derived(app.data?.compare?.base ?? 'the base');
   const folder = (path: string) => path.split(/[\\/]/).pop();
 
-  const STALE = 30 * 86400;
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 </script>
+
+{#snippet menu()}
+  <FilterMenu
+    value={f}
+    onchange={(patch) => app.setWorktreeFilter(patch)}
+    onreset={() => app.setWorktreeFilter(DEFAULT_WORKTREE_FILTER)}
+    groups={[
+      {
+        key: 'owner',
+        label: 'Whose',
+        options: [
+          { value: 'anyone', label: "Anyone's" },
+          {
+            value: 'mine',
+            label: 'Mine',
+            hint: 'Worktrees whose branch is yours: you wrote most of what it has that the base lacks.',
+            disabled: !app.data?.user
+          }
+        ]
+      },
+      {
+        key: 'state',
+        label: 'State',
+        options: [
+          { value: 'any', label: 'Any' },
+          {
+            value: 'changes',
+            label: 'With uncommitted changes',
+            hint: 'Work in progress: files changed, staged or new.'
+          },
+          {
+            value: 'clean',
+            label: 'Clean',
+            hint: 'Nothing uncommitted: removing the folder loses nothing, its branch stays. Lists them with a button to remove them all.'
+          },
+          {
+            value: 'merged',
+            label: `Merged into ${base}`,
+            hint: `Every commit it has is on ${base}, merged or rebased in. Lists them with a button to remove them all (and their branches, if you like).`
+          },
+          {
+            value: 'stale',
+            label: 'No commits for 30 days',
+            hint: 'Lists them with a button to remove them all.'
+          }
+        ]
+      }
+    ]}
+  />
+{/snippet}
 
 {#if app.view.worktrees && app.data}
   <ActionMenu>
     {#snippet children(open)}
-      <NavStrip label="Worktrees" count={worktrees.length} empty="No worktrees">
+      <NavStrip
+        label="Worktrees"
+        count={all.length}
+        shown={worktrees.length}
+        empty={all.length ? 'No worktrees match the filter' : 'No worktrees'}
+        filter={{
+          menu,
+          active,
+          loading: f.owner === 'mine' ? app.loadingBranchDetails : false,
+          hint: {
+            title: 'Filter the worktrees',
+            body: 'Yours, ones with work in progress, clean ones, merged ones or ones left alone for a month: and, for the last three, a button to remove them all.',
+            note: active ? 'Filtered: click to change or reset.' : undefined
+          }
+        }}
+      >
+        {#if cleanup.length}
+          <Button
+            variant="outline"
+            size="xs"
+            class="h-6 shrink-0 gap-1 border-destructive/50 px-2 text-xs font-normal text-destructive hover:text-destructive"
+            icon={Trash2}
+            loading={app.isRunning('removeWorktrees')}
+            hint={{
+              title: `Remove these ${cleanup.length} worktrees`,
+              body: 'Asks once, saying what would be lost (uncommitted changes), and offers to delete their branches too: here only, or on the remote as well.',
+              note:
+                worktrees.length > cleanup.length
+                  ? 'The main worktree and the one this graph shows stay.'
+                  : undefined,
+              command: 'git worktree remove <folder>'
+            }}
+            onclick={() => app.run({ type: 'removeWorktrees', paths: cleanup.map((w) => w.path) })}
+          >
+            Remove {cleanup.length}
+          </Button>
+        {/if}
         {#each worktrees as w (w.path)}
           <!-- The card shown on hover: what this worktree is, how old and how dirty -->
           {#snippet details()}
@@ -39,17 +158,37 @@
                 </span>
               {/if}
             </div>
-            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1">
+            <dl class={CARD_LIST}>
               <dt class="text-muted-foreground">Branch</dt>
               <dd class="font-mono">{w.branch ?? `detached at ${w.head.slice(0, 8)}`}</dd>
+              {#if w.branch && app.branchDetails[w.branch]}
+                {@const bd = app.branchDetails[w.branch]}
+                {@const o = owner(bd)}
+                {#if o}
+                  {@const total = bd.authors.reduce((n, a) => n + a.commits, 0)}
+                  <dt class="text-muted-foreground">Owner</dt>
+                  <dd class="flex items-center gap-1.5">
+                    <AuthorStack authors={bd.authors} />
+                    {o.name}
+                    <span class="text-muted-foreground tabular-nums">
+                      {o.commits} of {total} commits ({Math.round((100 * o.commits) / total)}%)
+                    </span>
+                  </dd>
+                {/if}
+              {/if}
               {#if w.headDate}
                 <dt class="text-muted-foreground">Last commit</dt>
                 <dd>
                   <span class={cn(stale && 'text-dirty')}>{ago(w.headDate)}</span>
-                  <span class="text-muted-foreground">
-                    · {new Date(w.headDate * 1000).toLocaleDateString()}
+                  <span class="text-[11px] text-muted-foreground italic">
+                    {new Date(w.headDate * 1000).toLocaleDateString()}
                   </span>
-                  <span class="line-clamp-2 block text-muted-foreground">{w.headSubject}</span>
+                  <span class="mt-0.5 line-clamp-2 block">
+                    <span class="font-mono text-[11px] text-muted-foreground"
+                      >{w.head.slice(0, 8)}</span
+                    >
+                    {w.headSubject}
+                  </span>
                 </dd>
               {/if}
               <dt class="text-muted-foreground">Changes</dt>
@@ -166,6 +305,10 @@
                 {:else if w.status}
                   <WorktreeState status={w.status} />
                 {/if}
+                {#if w.branch && owner(app.branchDetails[w.branch])}
+                  {@const o = owner(app.branchDetails[w.branch])!}
+                  <AuthorAvatar name={o.name} email={o.email} />
+                {/if}
               </button>
             {/snippet}
           </Tip>
@@ -180,9 +323,7 @@
               body: `Pick a free local branch or a remote one to check out in a new folder, or start a new branch from ${app.data?.compare?.base ?? 'the default branch'} (fetched first) or from any other branch. The folder goes next to this repository; you can open it right after.`,
               command: 'git worktree add ../<repo>-<branch> <branch>'
             }}
-            onclick={() =>
-              app.repo &&
-              host.run(app.repo, { type: 'newWorktree', base: app.data?.compare?.base })}
+            onclick={() => app.run({ type: 'newWorktree', base: app.data?.compare?.base })}
           />
         {/snippet}
       </NavStrip>
