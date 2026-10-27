@@ -3,7 +3,7 @@
  * against a real temporary repository.
  */
 import { execFile } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { resolve as resolvePath } from 'node:path';
 import {
   UNCOMMITTED,
@@ -158,9 +158,17 @@ export class Git {
 
     // Annotate refs
     const byHash = new Map(commits.map((c) => [c.hash, c]));
+    // Branches picked to show: only theirs are named (and their upstreams, with remote branches
+    // included), remote ones too; others pointing into their history would look part of the pick
+    const picked = q.branches.length ? new Set(q.branches) : null;
+    if (picked && q.showRemotes)
+      for (const { ref } of refs)
+        if (picked.has(ref.name) && ref.upstream) picked.add(ref.upstream.name);
     for (const { hash, ref } of refs) {
-      if ((ref.kind === 'remote' && !q.showRemotes) || (ref.kind === 'tag' && !q.showTags))
+      const branch = ref.kind === 'head' || ref.kind === 'remote';
+      if (branch && picked ? !picked.has(ref.name) : ref.kind === 'remote' && !q.showRemotes)
         continue;
+      if (ref.kind === 'tag' && !q.showTags) continue;
       byHash.get(hash)?.refs.push(ref);
     }
 
@@ -171,7 +179,7 @@ export class Git {
     }
 
     // Other worktrees' uncommitted changes, each right above the commit that worktree is on
-    for (const w of worktrees) {
+    for (const w of q.showWorktrees ? worktrees : []) {
       if (w.current || w.prunable || !w.status?.changes) continue;
       const at = commits.findIndex((c) => c.hash === w.head);
       if (at < 0) continue;
@@ -265,7 +273,7 @@ export class Git {
             // Hiding the current branch hides HEAD too, or nothing would change
             ...(c.head && !(c.currentBranch && q.hidden.includes(c.currentBranch)) ? ['HEAD'] : []),
             ...(q.showStashes ? c.stashBases : []),
-            ...c.detached
+            ...(q.showWorktrees ? c.detached : [])
           ];
     return {
       shown,
@@ -575,7 +583,14 @@ export class Git {
 
   private async worktreeStatus(path: string): Promise<WorktreeStatus> {
     const status: WorktreeStatus = { changes: 0, ahead: 0, behind: 0, upstream: null };
-    for (const l of lines(await this.exec(path, ['status', '--porcelain=v2', '--branch']))) {
+    // Every untracked file, not their folders: the count the file list and the graph's rows show
+    const out = await this.exec(path, [
+      'status',
+      '--porcelain=v2',
+      '--branch',
+      '--untracked-files=all'
+    ]);
+    for (const l of lines(out)) {
       if (l.startsWith('# branch.upstream ')) status.upstream = l.slice(18);
       else if (l.startsWith('# branch.ab '))
         [status.ahead, status.behind] = l
@@ -758,6 +773,68 @@ export class Git {
     return { staged: !!staged.trim(), diff: diff.slice(0, 60_000), recent };
   }
 
+  /**
+   * The branches stacked with `branch` on `base` (stacked pull requests), `branch` left out:
+   * `above`, those built on it (they contain its tip); `stack`, every branch sharing a commit with it
+   * that `base` doesn't have: those below it, above it, and side branches of either. Local and remote.
+   */
+  async stack(repo: string, branch: string, base: string) {
+    const containing = (rev: string) =>
+      this.exec(repo, [
+        'for-each-ref',
+        '--format=%(refname:short)',
+        '--contains',
+        rev,
+        'refs/heads',
+        'refs/remotes'
+      ]).then((out) => lines(out).filter((n) => n !== branch));
+    // Its oldest commit of its own: every branch with any of its commits has this one too
+    const [own] = lines(
+      await this.exec(repo, ['rev-list', '--first-parent', '--reverse', `${base}..${branch}`])
+    );
+    const [above, stack] = await Promise.all([
+      containing(branch),
+      own ? containing(own) : Promise.resolve([] as string[])
+    ]);
+    return { above, stack };
+  }
+
+  /** What a summary is written from: commit `rev`'s diff, or `repo`'s uncommitted changes (`rev` null). */
+  changes(repo: string, rev: string | null, max = 60_000): Promise<string> {
+    return rev ? this.patch(repo, '', rev, max) : this.patch(repo, 'HEAD', UNCOMMITTED, max);
+  }
+
+  /**
+   * The unified diff between two revisions, cut to `max` characters. `from` empty: the changes `to`
+   * made (a merge's against its first parent). `to` UNCOMMITTED: the working tree, new files included.
+   */
+  async patch(repo: string, from: string, to: string, max = 2_000_000): Promise<string> {
+    const flags = ['--no-ext-diff', '--no-color', '--find-renames'];
+    if (to !== UNCOMMITTED) {
+      const args = from
+        ? ['diff', ...flags, from, to]
+        : ['show', '--format=', ...flags, '--diff-merges=first-parent', to];
+      return (await this.exec(repo, args)).slice(0, max);
+    }
+    const [tracked, untracked] = await Promise.all([
+      this.try(this.exec(repo, ['diff', ...flags, from]), ''),
+      this.exec(repo, ['ls-files', '--others', '--exclude-standard']).then(lines)
+    ]);
+    let out = tracked;
+    for (const file of untracked) {
+      if (out.length >= max) break;
+      const text = await this.try(head(resolvePath(repo, file), max - out.length), '\0');
+      out += `diff --git a/${file} b/${file}\nnew file mode 100644\n`;
+      if (text.includes('\0')) out += `Binary files /dev/null and b/${file} differ\n`;
+      else if (text) {
+        const added = text.replace(/\n$/, '').split('\n');
+        out += `--- /dev/null\n+++ b/${file}\n@@ -0,0 +1,${added.length} @@\n`;
+        out += added.map((l) => `+${l}\n`).join('');
+      }
+    }
+    return out.slice(0, max);
+  }
+
   /** Whether `path` at `rev` is identical to the file in the working tree. */
   sameAsWorkingTree(repo: string, rev: string, path: string): Promise<boolean> {
     return this.exec(repo, ['diff', '--quiet', rev, '--', path]).then(
@@ -830,6 +907,17 @@ const exclude = (hidden: string[], refs: RefSummary[], kind: 'head' | 'remote') 
     .map((r) => `--exclude=${r.ref.name.replace(/[*?[\\]/g, '\\$&')}`);
 
 const lines = (s: string) => s.split(/\r?\n/).filter(Boolean);
+
+/** The first `bytes` of a file, as text. */
+async function head(path: string, bytes: number) {
+  const file = await open(path);
+  try {
+    const { buffer, bytesRead } = await file.read(Buffer.alloc(bytes), 0, bytes, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    await file.close();
+  }
+}
 const words = (s: string) => s.split(' ').filter(Boolean);
 const records = (s: string) =>
   s

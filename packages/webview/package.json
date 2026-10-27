@@ -11,6 +11,8 @@
   },
   "devDependencies": {
     "@lucide/svelte": "^1.61.0",
+    "@shikijs/core": "4.5.0",
+    "@shikijs/engine-javascript": "4.5.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tailwindcss/vite": "^4.3.3",
     "@treeline/shared": "workspace:*",

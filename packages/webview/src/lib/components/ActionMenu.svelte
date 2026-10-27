@@ -55,9 +55,9 @@
   function clean(list: MenuItem[]): MenuItem[] {
     return list
       .map((item) =>
-        item !== 'separator' && 'items' in item ? { ...item, items: clean(item.items) } : item
+        typeof item === 'object' && 'items' in item ? { ...item, items: clean(item.items) } : item
       )
-      .filter((item) => item === 'separator' || !('items' in item) || item.items.length)
+      .filter((item) => typeof item !== 'object' || !('items' in item) || item.items.length)
       .filter(
         (item, i, all) =>
           item !== 'separator' || (i > 0 && i < all.length - 1 && all[i - 1] !== 'separator')
@@ -91,6 +91,10 @@
   {#each list as item, i (i)}
     {#if item === 'separator'}
       <ContextMenu.Separator />
+    {:else if 'heading' in item}
+      <ContextMenu.Label class="py-1 text-[10px] tracking-wide text-muted-foreground uppercase">
+        {item.heading}
+      </ContextMenu.Label>
     {:else if 'items' in item}
       <ContextMenu.Sub>
         <ContextMenu.SubTrigger
@@ -99,7 +103,7 @@
           {#if item.icon}<item.icon />{:else}<span class="size-3.5"></span>{/if}
           {item.label}
         </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent class="min-w-44">
+        <ContextMenu.SubContent class="max-w-[26rem] min-w-44">
           {@render entries(item.items)}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
@@ -108,12 +112,19 @@
         {#snippet children(trigger)}
           <ContextMenu.Item
             {...trigger}
-            class={ITEM}
+            class="{ITEM} {item.muted ? 'opacity-60 data-highlighted:opacity-100' : ''}"
             variant={item.destructive ? 'destructive' : 'default'}
             onSelect={() => void item.run()}
           >
             {#if item.icon}<item.icon />{:else}<span class="size-3.5"></span>{/if}
-            {item.label}
+            {#if item.detail}
+              <span class="flex min-w-0 flex-col">
+                <span class="truncate">{item.label}</span>
+                <span class="truncate text-[11px] text-muted-foreground">{item.detail}</span>
+              </span>
+            {:else}
+              {item.label}
+            {/if}
           </ContextMenu.Item>
         {/snippet}
       </Tip>

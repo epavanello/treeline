@@ -2,18 +2,23 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { HostApi, HostEvent, RpcRequest, RpcResponse } from '@treeline/shared';
 import { DEFAULT_VIEW, type Action, type ViewSettings } from '@treeline/shared';
-import { openFolder } from './actions';
+import { openFolder, resumeClaudeSession } from './actions';
 import { openDiff, revisionUri } from './diff';
+import { activeTheme, grammarsFor } from './theme';
 import type { BranchDetailsCache } from './branchDetails';
+import type { Summaries } from './claude';
 import type { Git } from './git';
 import type { Pulls } from './pulls';
 import type { Repos } from './repos';
+import type { ClaudeSessions } from './sessions';
 
 export interface Services {
   git: Git;
   repos: Repos;
   pulls: Pulls;
   branchDetails: BranchDetailsCache;
+  summaries: Summaries;
+  claudeSessions: ClaudeSessions;
   log: vscode.LogOutputChannel;
   /** Runs an action, showing it as busy, then reloads the graph. */
   run: (repo: string, action: Action) => Promise<void>;
@@ -49,7 +54,17 @@ export class GraphPanel {
   private constructor(
     ctx: vscode.ExtensionContext,
     private readonly panel: vscode.WebviewPanel,
-    { git, repos, pulls, branchDetails, log, run, commitMessage }: Services
+    {
+      git,
+      repos,
+      pulls,
+      branchDetails,
+      summaries,
+      claudeSessions,
+      log,
+      run,
+      commitMessage
+    }: Services
   ) {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'resources', 'icon.svg');
     panel.webview.html = html(panel.webview, ctx.extensionUri);
@@ -78,9 +93,16 @@ export class GraphPanel {
         // Only web pages: the URL comes from the webview
         if (/^https:\/\//.test(url)) await vscode.env.openExternal(vscode.Uri.parse(url));
       },
+      getClaudeSessions: (folders) => timed('Claude sessions', claudeSessions.list(folders)),
+      resumeClaudeSession,
       run,
       openDiff: async (target) => void (await openDiff(git, target)),
       generateCommitMessage: commitMessage,
+      summarize: (repo, rev, cachedOnly) =>
+        timed(
+          `summary of ${rev?.slice(0, 8) ?? path.basename(repo)}`,
+          summaries.get(repo, rev, cachedOnly)
+        ),
       openFile: async (repo, file, hash) => {
         const uri = hash ? revisionUri(repo, file, hash) : vscode.Uri.file(path.join(repo, file));
         await vscode.commands.executeCommand('vscode.open', uri, { preview: true });
@@ -90,14 +112,21 @@ export class GraphPanel {
       copy: async (text) => vscode.env.clipboard.writeText(text),
       getView: async () => {
         // Saved settings may predate newer fields: fill them in from the defaults
-        const saved = ctx.globalState.get<Partial<ViewSettings>>('view') ?? {};
+        const saved =
+          ctx.globalState.get<Partial<ViewSettings> & { fileTree?: boolean }>('view') ?? {};
         return {
           ...DEFAULT_VIEW,
+          // Before `files`, a folder tree was `fileTree: true`
+          files: saved.fileTree ? 'tree' : DEFAULT_VIEW.files,
           ...saved,
           columns: { ...DEFAULT_VIEW.columns, ...saved.columns },
           widths: { ...DEFAULT_VIEW.widths, ...saved.widths }
         };
       },
+      branchStack: (repo, branch, base) => git.stack(repo, branch, base),
+      getPatch: (repo, from, to) => timed('patch', git.patch(repo, from, to)),
+      getCodeTheme: () => activeTheme(),
+      getGrammars: (file) => grammarsFor(file),
       setView: async (view) => void (await ctx.globalState.update('view', view)),
       getRepoView: async (repo) => {
         const key = await git.commonDir(repo);

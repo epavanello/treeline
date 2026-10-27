@@ -8,6 +8,8 @@ const ctx = await context({
   platform: 'node',
   target: 'node20',
   external: ['vscode'],
+  // jsonc-parser's default (UMD) build requires its own files at runtime: take its ESM one
+  mainFields: ['module', 'main'],
   sourcemap: process.argv.includes('--watch') ? 'inline' : false,
   minify: !process.argv.includes('--watch'),
   logLevel: 'info'

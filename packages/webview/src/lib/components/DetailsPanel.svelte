@@ -1,16 +1,23 @@
 <script lang="ts">
-  import { ago, UNCOMMITTED, type FileChange } from '@treeline/shared';
+  import { ago, UNCOMMITTED, type FileChange, type Ref } from '@treeline/shared';
   import {
     ChevronRight,
     Copy,
     File,
     FileClock,
     FileDiff,
+    FilePen,
     Folder,
+    FolderGit2,
+    GitBranch,
+    GitCommitHorizontal,
     GitCompare,
+    GitMerge,
+    Sparkles,
     List,
+    LoaderCircle,
     ListTree,
-    TriangleAlert,
+    Rows3,
     X
   } from '@lucide/svelte';
   import { SvelteSet } from 'svelte/reactivity';
@@ -18,9 +25,20 @@
   import { host } from '$lib/rpc';
   import type { MenuItem } from '$lib/menus';
   import { Button } from '$lib/components/ui/button';
+  import * as Resizable from '$lib/components/ui/resizable';
   import { cn } from '$lib/utils';
   import { fileTree, type Dir } from '$lib/fileTree';
+  import { STATUS_COLOR, STATUS_LABEL } from '$lib/fileStatus';
   import ActionMenu from './ActionMenu.svelte';
+  import AuthorAvatar from './AuthorAvatar.svelte';
+  import ChangeSummary from './ChangeSummary.svelte';
+  import ClaudeSessions from './ClaudeSessions.svelte';
+  import CopyField from './CopyField.svelte';
+  import DiffStat from './DiffStat.svelte';
+  import DiffView from './DiffView.svelte';
+  import RefBadge from './RefBadge.svelte';
+  import RefCard, { LEGEND, SUB } from './RefCard.svelte';
+  import { laneColor } from './GraphSvg.svelte';
 
   const d = $derived(app.details);
   const branch = $derived(app.branchDiff);
@@ -31,6 +49,13 @@
   );
   /** Where the files live: another worktree's folder, or the repository the graph shows. */
   const repo = $derived(wt ? wt.worktree.path : app.repo);
+  const uncommitted = $derived(!wt && !branch && !comparing && app.selected?.hash === UNCOMMITTED);
+  /** A commit's details, once loaded (not while another one's are still shown). */
+  const commit = $derived(
+    !wt && !branch && !comparing && d && d.hash !== UNCOMMITTED && d.hash === app.selected?.hash
+      ? d
+      : null
+  );
 
   /** The two revisions the file list is a diff between. */
   const range = $derived.by((): { from: string; to: string } => {
@@ -49,26 +74,74 @@
     return { from: sel.parents[0] ?? '', to: sel.hash };
   });
 
-  const statusColor: Record<string, string> = {
-    A: 'text-[var(--vscode-gitDecoration-addedResourceForeground)]',
-    U: 'text-[var(--vscode-gitDecoration-untrackedResourceForeground)]',
-    M: 'text-[var(--vscode-gitDecoration-modifiedResourceForeground)]',
-    D: 'text-[var(--vscode-gitDecoration-deletedResourceForeground)]',
-    R: 'text-[var(--vscode-gitDecoration-renamedResourceForeground)]'
-  };
-
+  const totals = $derived(
+    files.reduce((t, f) => ({ add: t.add + (f.additions ?? 0), del: t.del + (f.deletions ?? 0) }), {
+      add: 0,
+      del: 0
+    })
+  );
   const date = (s: number) => new Date(s * 1000).toLocaleString();
   const short = (h: string) => (h === UNCOMMITTED ? 'Working Tree' : h.slice(0, 8));
   const folderName = (path: string) => path.split(/[\\/]/).pop();
+  /** A loaded commit's subject, to name a parent or a compared commit. */
+  const subjectOf = (hash: string) => app.data?.commits.find((c) => c.hash === hash)?.subject;
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   function diff(file: FileChange) {
     if (!repo) return;
     void host.openDiff({ repo, file: $state.snapshot(file), ...range });
   }
 
+  /** The file list or diff: back to its top when it shows other changes. */
+  let right = $state<HTMLElement>();
+  $effect(() => {
+    void [repo, range.from, range.to];
+    if (right) right.scrollTop = 0;
+  });
+
+  /** A long commit message shows its first lines, the rest on request. */
+  let expanded = $state(false);
+  let clamped = $state(false);
+  let bodyEl = $state<HTMLElement>();
+  $effect(() => {
+    void app.selected?.hash;
+    expanded = false;
+  });
+  $effect(() => {
+    const el = bodyEl;
+    if (!el) return;
+    const measure = () => (clamped = el.scrollHeight > el.clientHeight + 1);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    measure();
+    return () => ro.disconnect();
+  });
+  /** Branch and tag details by `kind:name`, for the badges' hover cards. */
+  const summaries = $derived(
+    new Map(
+      [...(app.data?.heads ?? []), ...(app.data?.remoteHeads ?? []), ...(app.data?.tags ?? [])].map(
+        (r) => [`${r.ref.kind}:${r.ref.name}`, r]
+      )
+    )
+  );
+
   const tree = $derived(fileTree(files));
   /** Collapsed folders (all start expanded). */
   const collapsed = new SvelteSet<string>();
+
+  const VIEWS = [
+    { id: 'list', icon: List, hint: 'The changed files, as a flat list' },
+    {
+      id: 'tree',
+      icon: ListTree,
+      hint: 'The changed files as a folder tree (folders fold; chains of single folders share one row)'
+    },
+    {
+      id: 'diff',
+      icon: Rows3,
+      hint: "Every change on one page, as a pull request shows them: each file's changed lines, colored like the editor colors them. A file's name opens its diff in the editor."
+    }
+  ] as const;
 
   function fileMenu(file: FileChange): MenuItem[] {
     const at = repo!;
@@ -120,32 +193,64 @@
   }
 </script>
 
+{#snippet commitLink(hash: string)}
+  <!-- A commit to jump to: its short hash, then its subject when it's loaded -->
+  <button
+    class="flex w-full min-w-0 items-baseline gap-1.5 text-left hover:underline"
+    title="Show it in the graph"
+    onclick={() => app.reveal(hash)}
+  >
+    <span class="shrink-0 font-mono text-[11px] text-ring">{short(hash)}</span>
+    {#if subjectOf(hash)}<span class="truncate text-[12px]">{subjectOf(hash)}</span>{/if}
+  </button>
+{/snippet}
+
 <div class="flex h-full flex-col border-t bg-card text-[13px]" data-testid="details">
+  <!-- What the panel shows, how big it is, how to look at it -->
   <div class="flex h-8 shrink-0 items-center gap-2 border-b px-3">
-    <span class="font-semibold">
-      {#if wt}
-        {folderName(wt.worktree.path)}: uncommitted changes
-      {:else if branch}
-        Changes vs {branch.base}
-      {:else if comparing}
-        Comparing {short(range.from)} ↔ {short(range.to)}
-      {:else if app.selected?.hash === UNCOMMITTED}
-        Uncommitted Changes
-      {:else}
-        Commit {app.selected?.hash.slice(0, 8)}
-      {/if}
-    </span>
-    <span class="text-xs text-muted-foreground">{files.length} files</span>
-    <Button
-      class="ml-auto"
-      variant="ghost"
-      size="icon-xs"
-      icon={app.view.fileTree ? List : ListTree}
-      hint={app.view.fileTree
-        ? 'Show the files as a flat list'
-        : 'Show the files as a folder tree (folders collapse; chains of single folders share one row)'}
-      onclick={() => app.setView({ fileTree: !app.view.fileTree })}
-    />
+    {#if wt}
+      <FolderGit2 class="size-3.5 shrink-0" />
+      <span class="truncate font-semibold">{folderName(wt.worktree.path)}</span>
+      <span class="shrink-0 text-muted-foreground">uncommitted changes</span>
+    {:else if branch}
+      <GitCompare class="size-3.5 shrink-0" />
+      <span class="truncate font-semibold">Changes vs {branch.base}</span>
+    {:else if comparing}
+      <GitCompare class="size-3.5 shrink-0" />
+      <span class="truncate font-semibold">
+        <span class="font-mono">{short(range.from)}</span> ↔
+        <span class="font-mono">{short(range.to)}</span>
+      </span>
+    {:else if uncommitted}
+      <FilePen class="size-3.5 shrink-0 text-dirty" />
+      <span class="truncate font-semibold">Uncommitted Changes</span>
+    {:else}
+      <GitCommitHorizontal class="size-3.5 shrink-0" />
+      <span class="shrink-0 font-semibold">Commit</span>
+      <span class="truncate font-mono text-muted-foreground">{app.selected?.hash.slice(0, 8)}</span>
+    {/if}
+    <span class="shrink-0 text-xs text-muted-foreground">{plural(files.length, 'file')}</span>
+    {#if totals.add || totals.del}
+      <span class="shrink-0 font-mono text-[11px] tabular-nums">
+        <span class="text-[var(--vscode-gitDecoration-addedResourceForeground)]">+{totals.add}</span
+        >
+        <span class="text-[var(--vscode-gitDecoration-deletedResourceForeground)]"
+          >−{totals.del}</span
+        >
+      </span>
+    {/if}
+    <div class="ml-auto flex shrink-0 items-center rounded-sm border p-px">
+      {#each VIEWS as v (v.id)}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class={cn('size-5 rounded-[3px]', app.view.files === v.id && 'bg-accent text-foreground')}
+          icon={v.icon}
+          hint={v.hint}
+          onclick={() => app.setView({ files: v.id })}
+        />
+      {/each}
+    </div>
     <Button
       variant="ghost"
       size="icon-xs"
@@ -155,149 +260,274 @@
     />
   </div>
 
-  <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-    <div class="overflow-auto p-3 select-text">
-      {#if wt}
-        {@const c = app.worktreeDetails[wt.worktree.path]?.compare}
-        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-          <dt class="text-muted-foreground">Branch</dt>
-          <dd class="font-mono">
-            {wt.worktree.branch ?? `detached at ${short(wt.worktree.head)}`}
-          </dd>
-          <dt class="text-muted-foreground">Folder</dt>
-          <dd class="font-mono break-all">{wt.worktree.path}</dd>
-          {#if c}
-            <dt class="text-muted-foreground">vs {c.base}</dt>
+  <Resizable.PaneGroup
+    direction="horizontal"
+    class="min-h-0 flex-1"
+    onLayoutChange={(l) => {
+      if (l.length === 2) app.setView({ detailsSplit: Math.round(l[0]) });
+    }}
+  >
+    <Resizable.Pane defaultSize={app.view.detailsSplit} minSize={15} class="overflow-auto!">
+      <div class="flex flex-col gap-3 p-3 select-text">
+        {#if wt}
+          <!-- A worktree: its branch's card (the one its chip shows on hover) -->
+          <div class="flex flex-col gap-2">
+            <RefCard r={app.worktreeSummary(wt.worktree)} worktree={wt.worktree} files={false} />
+          </div>
+          <dl class={LEGEND}>
+            <dt><Sparkles class="size-3.5" /></dt>
+            <dd><ChangeSummary repo={wt.worktree.path} rev={null} version={wt.files} /></dd>
+            <ClaudeSessions branches={[wt.worktree.branch]} worktree={wt.worktree} />
+            <dt><GitCommitHorizontal class="size-3.5" /></dt>
             <dd>
-              {[
-                c.ahead && `↑ ${c.ahead} ahead`,
-                c.behind && `↓ ${c.behind} behind`,
-                c.same && `≡ ${c.same} copies`
-              ]
-                .filter(Boolean)
-                .join(' · ') || 'Same as the base'}{c.mergeBaseDate
-                ? ` · forked ${ago(c.mergeBaseDate)}`
-                : ''}
+              {@render commitLink(wt.worktree.head)}
+              <span class={SUB}
+                >its HEAD: the diffs are against it, the right side is the real file</span
+              >
             </dd>
-          {/if}
-        </dl>
-        {#if c?.rewritten}
-          <p
-            class="mt-2 flex items-start gap-1 rounded-sm border border-dirty/40 bg-dirty/10 px-1.5 py-1 text-xs text-dirty"
-          >
-            <TriangleAlert class="mt-px size-3.5 shrink-0" />
-            Rewritten history: rather than merging, start a fresh branch from {c.base} and bring these
-            changes over.
+          </dl>
+        {:else if branch}
+          <dl class={LEGEND}>
+            <dt><GitCompare class="size-3.5" /></dt>
+            <dd>
+              <span class="font-semibold">
+                Everything {app.data?.currentBranch ?? 'HEAD'} changed since it forked from {branch.base}
+              </span>
+              <span class={SUB}>uncommitted changes included: what a pull request would show</span>
+            </dd>
+            <dt><GitMerge class="size-3.5" /></dt>
+            <dd>
+              {@render commitLink(branch.mergeBase)}
+              <span class={SUB}>the fork point</span>
+            </dd>
+            <ClaudeSessions
+              branches={[app.data?.currentBranch]}
+              worktree={app.data?.worktrees.find((w) => w.current)}
+            />
+            <dt><FileDiff class="size-3.5" /></dt>
+            <dd class="text-[12px] text-muted-foreground">
+              Diffs open on your working files, so Go to Definition, errors and links work.
+            </dd>
+          </dl>
+        {:else if comparing}
+          <dl class={LEGEND}>
+            <dt><span class="text-[11px]">from</span></dt>
+            <dd>{@render commitLink(range.from)}</dd>
+            <dt><span class="text-[11px]">to</span></dt>
+            <dd>{@render commitLink(range.to)}</dd>
+          </dl>
+        {:else if uncommitted}
+          <dl class={LEGEND}>
+            <dt><FilePen class="size-3.5 text-dirty" /></dt>
+            <dd>
+              <span class="font-semibold text-dirty"
+                >{plural(files.length, 'uncommitted change')}</span
+              >
+              <span class={SUB}>
+                on {app.data?.currentBranch ?? 'a detached HEAD'}, against its last commit
+              </span>
+            </dd>
+            {#if app.repo}
+              <dt><Sparkles class="size-3.5" /></dt>
+              <dd><ChangeSummary repo={app.repo} rev={null} version={d?.files} /></dd>
+              <dt><FolderGit2 class="size-3.5" /></dt>
+              <dd><CopyField value={app.repo} what="folder path" /></dd>
+            {/if}
+          </dl>
+        {:else if commit}
+          {@const [subject, ...rest] = commit.body.split('\n')}
+          {@const body = rest.join('\n').trim()}
+          {@const refs = app.selected?.refs ?? []}
+          <!-- A local branch and its remote copy share one badge, as in the graph -->
+          {@const remoteOf = (r: Ref) =>
+            refs.find(
+              (u) => u.kind === 'remote' && u.name === app.rowOf.get(r.name)?.remote?.ref.name
+            )}
+          {@const merged = refs.flatMap((r) => (r.kind === 'head' ? (remoteOf(r) ?? []) : []))}
+          {@const row =
+            app.graph.rows[app.data?.commits.findIndex((c) => c.hash === commit.hash) ?? -1]}
+          <div>
+            <h3 class="text-[14px] leading-snug font-semibold">{subject}</h3>
+            {#if body}
+              <!-- Its first lines; the rest on request -->
+              <p
+                bind:this={bodyEl}
+                class={cn(
+                  'mt-1.5 text-[13px] whitespace-pre-wrap text-foreground/85',
+                  !expanded && 'line-clamp-4'
+                )}
+              >
+                {body}
+              </p>
+              {#if expanded || clamped}
+                <button
+                  class="mt-0.5 text-xs text-ring hover:underline"
+                  onclick={() => (expanded = !expanded)}
+                >
+                  {expanded ? 'Show less' : 'Show all'}
+                </button>
+              {/if}
+            {/if}
+            {#if refs.length}
+              <div class="mt-2 flex flex-wrap gap-1">
+                {#each refs.filter((r) => !merged.includes(r)) as r (r.kind + r.name)}
+                  <RefBadge
+                    ref={r}
+                    remote={r.kind === 'head' ? remoteOf(r) : undefined}
+                    card={summaries.get(`${r.kind}:${r.name}`)}
+                    color={laneColor(row?.color ?? 0)}
+                    current={r.kind === 'head' && r.name === app.data?.currentBranch}
+                    status={r.worktree
+                      ? app.data?.worktrees.find((w) => w.path === r.worktree)?.status
+                      : undefined}
+                  />
+                {/each}
+              </div>
+            {/if}
+          </div>
+          <dl class="{LEGEND} border-t pt-3">
+            <dt><AuthorAvatar name={commit.author} email={commit.authorEmail} /></dt>
+            <dd>
+              <span class="font-semibold">{commit.author}</span>
+              <span class={SUB}>{commit.authorEmail}</span>
+              <span class={SUB}>
+                authored {ago(commit.authorDate)} ·
+                <span class="italic">{date(commit.authorDate)}</span>
+              </span>
+            </dd>
+            {#if commit.committer !== commit.author || commit.committerDate !== commit.authorDate}
+              <dt><AuthorAvatar name={commit.committer} email={commit.committerEmail} /></dt>
+              <dd>
+                <span class="font-semibold">{commit.committer}</span>
+                <span class={SUB}>
+                  committed it {ago(commit.committerDate)} ·
+                  <span class="italic">{date(commit.committerDate)}</span>
+                </span>
+              </dd>
+            {/if}
+            <dt><GitCommitHorizontal class="size-3.5" /></dt>
+            <dd><CopyField value={commit.hash} what="commit hash" /></dd>
+            <dt>
+              {#if commit.parents.length > 1}<GitMerge class="size-3.5" />{:else}<span
+                  class="text-[11px]">parent</span
+                >{/if}
+            </dt>
+            <dd>
+              {#each commit.parents as p (p)}
+                {@render commitLink(p)}
+              {:else}
+                <span class="text-muted-foreground">None: the first commit</span>
+              {/each}
+              {#if commit.parents.length > 1}
+                <span class={SUB}>a merge: the files are what it brought into the first one</span>
+              {/if}
+            </dd>
+            {#if app.repo}
+              <dt><Sparkles class="size-3.5" /></dt>
+              <dd><ChangeSummary repo={app.repo} rev={commit.hash} /></dd>
+            {/if}
+            <!-- The sessions behind the branches it's the tip of (not the base: most sessions start there) -->
+            <ClaudeSessions
+              branches={refs
+                .filter((r) => r.kind === 'head' || r.kind === 'remote')
+                .filter((r) => r.name !== app.data?.compare?.base)
+                .map((r) =>
+                  r.kind === 'remote' ? r.name.slice((r.remote?.length ?? -1) + 1) : r.name
+                )
+                .filter((n) => !app.data?.compare?.base?.endsWith(`/${n}`))}
+            />
+          </dl>
+        {:else}
+          <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <LoaderCircle class="size-3.5 animate-spin" /> Loading the commit…
           </p>
         {/if}
-        <p class="mt-2 text-xs text-muted-foreground">
-          Click a file to see its diff against the worktree's HEAD; the right side is the real file
-          in that folder.
-        </p>
-        <button
-          class="mt-1 text-xs text-ring hover:underline"
-          onclick={() => app.reveal(wt.worktree.head)}
-        >
-          Show its commit in the graph
-        </button>
-      {:else if branch}
-        <p class="text-xs text-muted-foreground">
-          Every change since {app.data?.currentBranch ?? 'HEAD'} forked from {branch.base} at
-          <span class="font-mono">{short(branch.mergeBase)}</span>, uncommitted changes included:
-          what a pull request would show. Diffs open on your working files, so Go to Definition,
-          errors and links work.
-        </p>
-      {:else if d && !comparing && d.hash !== UNCOMMITTED}
-        <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
-          <dt class="text-muted-foreground">Commit</dt>
-          <dd class="font-mono">{d.hash}</dd>
-          <dt class="text-muted-foreground">Parents</dt>
-          <dd class="font-mono">{d.parents.map((p) => p.slice(0, 8)).join(', ') || '—'}</dd>
-          <dt class="text-muted-foreground">Author</dt>
-          <dd>{d.author} &lt;{d.authorEmail}&gt;</dd>
-          <dt class="text-muted-foreground">Date</dt>
-          <dd>{date(d.authorDate)}</dd>
-          {#if d.committer !== d.author || d.committerDate !== d.authorDate}
-            <dt class="text-muted-foreground">Committer</dt>
-            <dd>{d.committer} &lt;{d.committerEmail}&gt; · {date(d.committerDate)}</dd>
-          {/if}
-        </dl>
-        <pre class="mt-3 font-sans text-[13px] whitespace-pre-wrap">{d.body}</pre>
-      {:else if comparing}
-        <p class="text-xs text-muted-foreground">
-          Changes from {short(range.from)} to {short(range.to)}.
-        </p>
-      {:else}
-        <p class="text-xs text-muted-foreground">Changes in the working tree relative to HEAD.</p>
-      {/if}
-    </div>
-
-    <ActionMenu>
-      {#snippet children(open)}
-        {#snippet fileRow(f: FileChange, depth: number, withDir: boolean)}
-          <li>
-            <button
-              class="flex w-full items-center gap-2 py-0.5 pr-3 text-left hover:bg-accent data-menu-open:bg-accent"
-              style="padding-left: {12 + depth * 14}px"
-              onclick={() => diff(f)}
-              oncontextmenu={(e) => open(e, fileMenu(f))}
-              title={f.status === 'R' ? `${f.oldPath} → ${f.path}` : f.path}
-            >
-              <span class={cn('w-3 shrink-0 font-mono text-xs font-bold', statusColor[f.status])}
-                >{f.status}</span
-              >
-              <span class="truncate">
-                {f.path.split('/').pop()}
-                {#if withDir}
-                  <span class="text-xs text-muted-foreground"
-                    >{f.path.split('/').slice(0, -1).join('/')}</span
+      </div>
+    </Resizable.Pane>
+    <Resizable.Handle />
+    <Resizable.Pane minSize={25}>
+      <div class="h-full overflow-auto" bind:this={right}>
+        <ActionMenu>
+          {#snippet children(open)}
+            {#snippet fileRow(f: FileChange, depth: number, withDir: boolean)}
+              <li>
+                <button
+                  class="flex w-full items-center gap-2 py-0.5 pr-3 text-left hover:bg-accent data-menu-open:bg-accent"
+                  style="padding-left: {12 + depth * 14}px"
+                  onclick={() => diff(f)}
+                  oncontextmenu={(e) => open(e, fileMenu(f))}
+                  title="{STATUS_LABEL[f.status]}: {f.status === 'R'
+                    ? `${f.oldPath} → ${f.path}`
+                    : f.path}"
+                >
+                  <span
+                    class={cn('w-3 shrink-0 font-mono text-xs font-bold', STATUS_COLOR[f.status])}
+                    >{f.status}</span
                   >
+                  <span class="truncate">
+                    {f.path.split('/').pop()}
+                    {#if withDir}
+                      <span class="text-xs text-muted-foreground"
+                        >{f.path.split('/').slice(0, -1).join('/')}</span
+                      >
+                    {/if}
+                  </span>
+                  <DiffStat
+                    class="ml-auto shrink-0"
+                    additions={f.additions}
+                    deletions={f.deletions}
+                  />
+                </button>
+              </li>
+            {/snippet}
+            {#snippet folder(dir: Dir, depth: number)}
+              {#each dir.dirs as sub (sub.path)}
+                {@const expanded = !collapsed.has(sub.path)}
+                <li>
+                  <button
+                    class="flex w-full items-center gap-1 py-0.5 pr-3 text-left text-muted-foreground hover:bg-accent"
+                    style="padding-left: {8 + depth * 14}px"
+                    title={sub.path}
+                    onclick={() =>
+                      expanded ? collapsed.add(sub.path) : collapsed.delete(sub.path)}
+                  >
+                    <ChevronRight
+                      class={cn('size-3.5 shrink-0 transition-transform', expanded && 'rotate-90')}
+                    />
+                    <Folder class="size-3.5 shrink-0" />
+                    <span class="truncate">{sub.name}</span>
+                  </button>
+                </li>
+                {#if expanded}
+                  {@render folder(sub, depth + 1)}
                 {/if}
-              </span>
-              {#if f.additions !== null}
-                <span class="ml-auto shrink-0 font-mono text-xs">
-                  <span class={statusColor.A}>+{f.additions}</span>
-                  <span class={statusColor.D}>−{f.deletions}</span>
-                </span>
-              {/if}
-            </button>
-          </li>
-        {/snippet}
-        {#snippet folder(dir: Dir, depth: number)}
-          {#each dir.dirs as sub (sub.path)}
-            {@const expanded = !collapsed.has(sub.path)}
-            <li>
-              <button
-                class="flex w-full items-center gap-1 py-0.5 pr-3 text-left text-muted-foreground hover:bg-accent"
-                style="padding-left: {8 + depth * 14}px"
-                title={sub.path}
-                onclick={() => (expanded ? collapsed.add(sub.path) : collapsed.delete(sub.path))}
-              >
-                <ChevronRight
-                  class={cn('size-3.5 shrink-0 transition-transform', expanded && 'rotate-90')}
-                />
-                <Folder class="size-3.5 shrink-0" />
-                <span class="truncate">{sub.name}</span>
-              </button>
-            </li>
-            {#if expanded}
-              {@render folder(sub, depth + 1)}
+              {/each}
+              {#each dir.files as f (f.path)}
+                {@render fileRow(f, depth, false)}
+              {/each}
+            {/snippet}
+            {#if app.view.files === 'diff' && repo}
+              <DiffView
+                {repo}
+                {...range}
+                {files}
+                onopen={diff}
+                menu={(e, f) => open(e, fileMenu(f))}
+              />
+            {:else}
+              <ul class="py-1">
+                {#if app.view.files === 'tree'}
+                  {@render folder(tree, 0)}
+                {:else}
+                  {#each files as f (f.path)}
+                    {@render fileRow(f, 0, true)}
+                  {/each}
+                {/if}
+              </ul>
             {/if}
-          {/each}
-          {#each dir.files as f (f.path)}
-            {@render fileRow(f, depth, false)}
-          {/each}
-        {/snippet}
-        <ul class="overflow-auto border-l py-1">
-          {#if app.view.fileTree}
-            {@render folder(tree, 0)}
-          {:else}
-            {#each files as f (f.path)}
-              {@render fileRow(f, 0, true)}
-            {/each}
-          {/if}
-        </ul>
-      {/snippet}
-    </ActionMenu>
-  </div>
+          {/snippet}
+        </ActionMenu>
+      </div>
+    </Resizable.Pane>
+  </Resizable.PaneGroup>
 </div>

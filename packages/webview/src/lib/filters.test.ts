@@ -75,19 +75,24 @@ const names = (f = {}) =>
   filterBranches(data, { ...DEFAULT_BRANCH_FILTER, ...f }, ctx).map((r) => primary(r).ref.name);
 
 describe('branch filters', () => {
-  it('shows a local branch and its remote copy as one, most recent first', () => {
+  it('shows a local branch and its remote copy as one, checked out then most recent first', () => {
     const rows = branchRows(data);
     expect(rows.map((r) => [r.local?.ref.name, r.remote?.ref.name])).toEqual([
-      ['main', 'origin/main'],
       ['mine', 'origin/mine'],
+      ['main', 'origin/main'],
       ['gone', undefined],
       [undefined, 'origin/team'],
       ['merged', 'origin/merged'],
       ['theirs', undefined]
     ]);
-    expect(names()).toEqual(['main', 'mine', 'gone', 'merged', 'theirs']);
+    expect(names()).toEqual(['mine', 'main', 'gone', 'merged', 'theirs']);
     expect(names({ scope: 'remote' })).toEqual(['origin/team']);
     expect(names({ scope: 'all' })).toHaveLength(6);
+  });
+
+  it('puts the checked-out branch first, whatever its date', () => {
+    const rows = branchRows({ ...data, currentBranch: 'theirs' });
+    expect(rows.map((r) => primary(r).ref.name).slice(0, 2)).toEqual(['theirs', 'main']);
   });
 
   it('knows whose a branch is and where it stands', () => {

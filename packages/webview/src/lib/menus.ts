@@ -5,6 +5,7 @@
  * shown when hovering the item: what it does, what to watch out for, the command.
  */
 import {
+  ago,
   UNCOMMITTED,
   type Action,
   type Commit,
@@ -14,6 +15,7 @@ import {
 } from '@treeline/shared';
 import {
   Archive,
+  BotMessageSquare,
   ArchiveRestore,
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -36,6 +38,7 @@ import {
   GitMerge,
   GitPullRequest,
   Layers,
+  Layers2,
   ListFilter,
   ListMinus,
   LogIn,
@@ -63,7 +66,19 @@ type Icon = typeof Copy;
  * (deleting, discarding) are drawn in the warning color.
  */
 export type MenuItem =
-  | { label: string; run: () => unknown; hint?: Hint; icon?: Icon; destructive?: boolean }
+  | {
+      label: string;
+      run: () => unknown;
+      hint?: Hint;
+      icon?: Icon;
+      destructive?: boolean;
+      /** A second, muted line under the label. */
+      detail?: string;
+      /** Dimmed: there, but secondary (an archived session). */
+      muted?: boolean;
+    }
+  /** A heading over the items that follow. */
+  | { heading: string }
   | { label: string; items: MenuItem[]; icon?: Icon; destructive?: boolean }
   | 'separator';
 
@@ -204,6 +219,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           },
           ...deleteItems(ref),
           ...pullItems(ref),
+          ...when(!worktree, claudeItems(ref.name)),
           sep,
           { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
         ];
@@ -252,6 +268,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
           },
           ...deleteItems(ref),
           ...pullItems(ref),
+          ...claudeItems(app.rowOf.get(ref.name)?.local?.ref.name ?? local),
           sep,
           { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
         ];
@@ -430,9 +447,11 @@ export function menuItems(target: MenuTarget): MenuItem[] {
 }
 
 /** Show only a branch, add it to or remove it from the shown ones, or hide it from "all". */
-function visibility(name: string): MenuItem {
+export function visibility(name: string): MenuItem {
   const shown = app.branches.includes(name);
   const hidden = app.hidden.includes(name);
+  const base = app.data?.compare?.base;
+  const isBase = !!base && app.rowOf.get(name) === app.rowOf.get(base);
   return {
     label: 'Graph Filter',
     icon: ListFilter,
@@ -444,6 +463,36 @@ function visibility(name: string): MenuItem {
           run: () => app.setBranches([name]),
           hint: `The graph shows just the history of ${name}.`
         }
+      ]),
+      // Stacked pull requests: a branch, its base, and the branches stacked with it
+      ...when(base && !isBase, [
+        {
+          label: `This Branch and ${base}`,
+          icon: GitCompare,
+          run: () => app.showStack(name, 'base'),
+          hint: `The graph shows ${name} and ${base}: where it forked, and what ${base} gained since.`
+        },
+        {
+          label: `This Branch, ${base} and Those Built on It`,
+          icon: Layers2,
+          run: () => app.showStack(name, 'above'),
+          hint: {
+            title: 'The rest of its stack, upwards',
+            body: `Adds the branches that contain ${name}: in a stack of pull requests, the ones above it.`,
+            command: `git for-each-ref --contains ${name}`
+          }
+        },
+        {
+          label: `Its Whole Stack on ${base}`,
+          icon: Layers,
+          run: () => app.showStack(name, 'stack'),
+          hint: {
+            title: 'Every branch of its stack',
+            body: `Adds every branch sharing a commit with ${name} that ${base} doesn't have: the ones it was built on, the ones built on it, and their side branches.`,
+            command: `git for-each-ref --contains <first commit of ${base}..${name}>`
+          }
+        },
+        sep
       ]),
       ...when(app.branches.length && !shown, [
         {
@@ -529,6 +578,7 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
       }
     ]),
     ...when(other, [removeWorktree(w)]),
+    ...claudeItems(w.branch, w),
     sep,
     { label: 'Copy Worktree Path', icon: Copy, run: copy(w.path) }
   ];
@@ -577,6 +627,62 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
     sep,
     { label: 'Copy Stash Name', icon: Copy, run: copy(selector) },
     { label: 'Copy Stash Hash', icon: Copy, run: copy(commit.hash) }
+  ];
+}
+
+/**
+ * The Claude sessions behind a branch or worktree (`app.sessionsOf`), in a submenu: the open ones,
+ * each with why, its last message, its length and where it opens; the archived ones in their own.
+ */
+function claudeItems(branch: string | null | undefined, worktree?: Worktree): MenuItem[] {
+  const sessions = app.sessionsOf(branch, worktree);
+  if (!sessions.length) return [];
+  const date = (t: number) =>
+    new Date(t * 1000).toLocaleString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: new Date(t * 1000).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  const item = ({ s, why }: (typeof sessions)[number], muted = false): MenuItem => ({
+    label: s.title,
+    muted,
+    detail: [
+      why,
+      `last message ${date(s.active)}`,
+      s.prompts && `${s.prompts} message${s.prompts === 1 ? '' : 's'}`,
+      s.desktopId ? 'desktop app' : 'terminal'
+    ]
+      .filter(Boolean)
+      .join(' · '),
+    icon: BotMessageSquare,
+    run: () => host.resumeClaudeSession(s),
+    hint: {
+      title: s.title,
+      body: s.desktopId
+        ? `Opens it in the Claude desktop app${s.archived ? ', where it stays archived' : ''}. Last message ${ago(s.active)}.`
+        : `Resumes it in a terminal, in ${s.cwd}. Last message ${ago(s.active)}.`,
+      command: s.desktopId ? undefined : `claude --resume ${s.id}`
+    }
+  });
+  const open = sessions.filter((x) => !x.s.archived).slice(0, 10);
+  const archived = sessions.filter((x) => x.s.archived).slice(0, 5);
+  return [
+    sep,
+    {
+      label: 'Continue Claude Session',
+      icon: BotMessageSquare,
+      items: [
+        ...open.map((x) => item(x)),
+        // Archived ones under their own heading, dimmed (a nested submenu would open behind this one)
+        ...when(archived.length, [
+          sep,
+          { heading: `Archived (${sessions.filter((x) => x.s.archived).length})` },
+          ...archived.map((x) => item(x, true))
+        ])
+      ]
+    }
   ];
 }
 
@@ -708,24 +814,27 @@ function removeWorktree(w: Worktree): MenuItem {
           command: `git worktree remove ${w.path} && git branch -D ${w.branch}`
         }
       },
-      ...when(remote?.remote, [
-        {
-          label: `And Its Branch, on ${remote?.remote} Too…`,
-          icon: Trash2,
-          destructive: true,
-          run: run({
-            type: 'removeWorktree',
-            path: w.path,
-            deleteBranch: w.branch,
-            deleteRemote: { name: remote!.name, remote: remote!.remote! }
-          }),
-          hint: {
-            body: `Deletes the folder, ${w.branch}, and ${short} on ${remote?.remote}: what you do once its pull request is merged.`,
-            warn: 'Deleting on the remote affects everyone. Asks first.',
-            command: `git worktree remove ${w.path} · git branch -D ${w.branch} · git push ${remote?.remote} --delete ${short}`
-          }
-        }
-      ])
+      // Not `when()`: it builds its items even when false, and these need the remote copy
+      ...(remote?.remote
+        ? [
+            {
+              label: `And Its Branch, on ${remote.remote} Too…`,
+              icon: Trash2,
+              destructive: true,
+              run: run({
+                type: 'removeWorktree',
+                path: w.path,
+                deleteBranch: w.branch,
+                deleteRemote: { name: remote.name, remote: remote.remote }
+              }),
+              hint: {
+                body: `Deletes the folder, ${w.branch}, and ${short} on ${remote.remote}: what you do once its pull request is merged.`,
+                warn: 'Deleting on the remote affects everyone. Asks first.',
+                command: `git worktree remove ${w.path} · git branch -D ${w.branch} · git push ${remote.remote} --delete ${short}`
+              }
+            }
+          ]
+        : [])
     ]
   };
 }

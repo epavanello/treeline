@@ -5,6 +5,7 @@
  */
 import {
   actionTarget,
+  UNCOMMITTED,
   DEFAULT_VIEW,
   type Action,
   type GraphQuery,
@@ -81,6 +82,7 @@ const reply = (id: number, result: unknown, ms = 30) =>
 let state: unknown;
 let view = structuredClone(DEFAULT_VIEW);
 let repoView: Record<string, unknown> | null = null;
+const summaries = new Map<string, string>();
 (window as unknown as { acquireVsCodeApi: () => unknown }).acquireVsCodeApi = () => ({
   getState: () => state,
   setState: (s: unknown) => (state = s),
@@ -93,6 +95,7 @@ let repoView: Record<string, unknown> | null = null;
         const q = args[0] as GraphQuery;
         const all = fixture.graph.commits
           .filter((c) => q.showStashes || !(c as { stashBase?: string }).stashBase)
+          .filter((c) => q.showWorktrees || !(c as { worktree?: string }).worktree)
           .map((c) => (q.showTags ? c : { ...c, refs: c.refs.filter((r) => r.kind !== 'tag') }))
           .filter((c) => !q.authors.length || q.authors.includes(c.author))
           .filter(
@@ -128,6 +131,46 @@ let repoView: Record<string, unknown> | null = null;
         const files = Object.values(fixture.details).flatMap((d) => d.files);
         return reply(id, [...new Map(files.map((f) => [f.path, f])).values()]);
       }
+      case 'branchStack': {
+        const stacks = (fixture as { stacks?: Record<string, unknown> }).stacks ?? {};
+        return reply(id, stacks[args[1] as string] ?? { above: [], stack: [] });
+      }
+      case 'getPatch': {
+        // Recorded by the fixture script: commits by hash, the working tree as '*', worktrees by path
+        const [repo, , to] = args as string[];
+        const key = to === UNCOMMITTED && repo !== fixture.repo ? repo : to;
+        return reply(
+          id,
+          (fixture as { patches?: Record<string, string> }).patches?.[key] ?? '',
+          200
+        );
+      }
+      case 'getCodeTheme':
+        return reply(id, (fixture as { theme?: unknown }).theme ?? null);
+      case 'getGrammars': {
+        const name = (args[0] as string).split('/').pop()!.toLowerCase();
+        const kind = name.includes('.') ? name.slice(name.lastIndexOf('.')) : name;
+        return reply(
+          id,
+          (fixture as { grammars?: Record<string, unknown> }).grammars?.[kind] ?? null
+        );
+      }
+      case 'summarize': {
+        // Claude's 4 lines, after a few seconds the first time
+        const key = `${args[0]}\0${args[1]}`;
+        if (args[2]) return reply(id, summaries.get(key) ?? null);
+        const text =
+          'Adds a price range and category filter to the product search, kept in the URL so results can be shared.\nThe search API gains matching query parameters; the old endpoint still works.\nWork in progress: the filter panel has no tests yet.';
+        return setTimeout(() => {
+          summaries.set(key, text);
+          reply(id, text);
+        }, 2500);
+      }
+      case 'getClaudeSessions':
+        return reply(id, (fixture as { claudeSessions?: unknown[] }).claudeSessions ?? []);
+      case 'resumeClaudeSession':
+        console.log('resume', args[0]);
+        return reply(id, undefined);
       case 'getWorktreeDetails':
         return reply(
           id,

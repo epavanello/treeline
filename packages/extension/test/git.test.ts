@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { UNCOMMITTED, type Side } from '@treeline/shared';
@@ -24,6 +24,7 @@ const query = (over = {}) => ({
   showRemotes: true,
   showTags: true,
   showStashes: true,
+  showWorktrees: true,
   maxCommits: 100,
   ...over
 });
@@ -95,6 +96,22 @@ describe('getGraph', () => {
       'Feature work 1',
       'Add b',
       'Initial commit'
+    ]);
+  });
+
+  it('names only the branches picked, remote ones too', async () => {
+    const names = async (over: object) =>
+      (await git.getGraph(query({ showRemotes: false, ...over }))).commits
+        .flatMap((c) => c.refs)
+        .filter((r) => r.kind !== 'stash')
+        .map((r) => r.name)
+        .sort();
+    // feature and origin/main point into topic's history: not named, the tag still is
+    expect(await names({ branches: ['topic'] })).toEqual(['topic', 'v1.0']);
+    expect(await names({ branches: ['topic', 'origin/main'] })).toEqual([
+      'origin/main',
+      'topic',
+      'v1.0'
     ]);
   });
 });
@@ -247,10 +264,14 @@ describe('worktrees', () => {
     execFileSync('git', ['worktree', 'add', '-q', path, 'topic'], { cwd: dir });
     execFileSync('git', ['branch', '-q', '-u', 'origin/main'], { cwd: path });
     writeFileSync(join(path, 'wip.txt'), 'wip\n');
+    // A new folder counts its files, as the file list shows them
+    mkdirSync(join(path, 'new'));
+    writeFileSync(join(path, 'new', 'one.txt'), '1\n');
+    writeFileSync(join(path, 'new', 'two.txt'), '2\n');
 
     const [, linked] = await git.getWorktrees(dir);
     expect(linked).toMatchObject({ branch: 'topic', main: false, current: false });
-    expect(linked.status).toEqual({ changes: 1, ahead: 1, behind: 0, upstream: 'origin/main' });
+    expect(linked.status).toEqual({ changes: 3, ahead: 1, behind: 0, upstream: 'origin/main' });
 
     const g = await git.getGraph(query());
     const refs = g.commits.flatMap((c) => c.refs);
@@ -269,7 +290,11 @@ describe('worktrees', () => {
     // Its card: compared with a base, and what it hasn't committed
     const details = await git.worktreeDetails(linked.path, 'main');
     expect(details.compare).toMatchObject({ base: 'main', ahead: 1, behind: 1, rewritten: false });
-    expect(details.files.map((f) => `${f.status} ${f.path}`)).toEqual(['U wip.txt']);
+    expect(details.files.map((f) => `${f.status} ${f.path}`)).toEqual([
+      'U new/one.txt',
+      'U new/two.txt',
+      'U wip.txt'
+    ]);
 
     rmSync(path, { recursive: true });
     const [, gone] = await git.getWorktrees(dir);
@@ -463,6 +488,9 @@ describe("other worktrees' uncommitted changes", () => {
       parents: [g.commits[i + 1].hash]
     });
     expect(g.commits[i + 1].subject).toBe('Topic commit');
+    // Left out with worktrees off (Include menu)
+    const off = await git.getGraph({ ...query(), repo, showWorktrees: false });
+    expect(off.commits.some((c) => c.worktree)).toBe(false);
     rmSync(wt, { recursive: true, force: true });
   });
 });

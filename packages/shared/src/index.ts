@@ -78,6 +78,11 @@ export interface GraphQuery {
   showTags: boolean;
   /** Stash rows (above the commit each was taken on). */
   showStashes: boolean;
+  /**
+   * Other worktrees in the graph: their Uncommitted Changes rows and folder badges, and the commits
+   * only a detached worktree is on.
+   */
+  showWorktrees: boolean;
   maxCommits: number;
   /** Branch to compare HEAD with; null = the default (origin/HEAD, then main/master). */
   base: string | null;
@@ -174,6 +179,32 @@ export type PullRequests =
   | { status: 'none' }
   | { status: 'signin'; repo: string }
   | { status: 'error'; message: string };
+
+/**
+ * A Claude Code session that ran in one of the repository's folders, from what Claude Code and the
+ * desktop app keep on disk (see `sessions.ts`).
+ */
+export interface ClaudeSession {
+  /** Claude Code's id: `claude --resume <id>`, run in `cwd`. */
+  id: string;
+  /** The desktop app's id (`local_…`) when the app ran it: opened with a `claude://` link. */
+  desktopId?: string;
+  title: string;
+  /** Its folder: a worktree's, or the repository's. */
+  cwd: string;
+  /** Branches it was on, from its transcript's start and end (`gitBranch`). */
+  branches: string[];
+  /** Branches it committed to (desktop app sessions only). */
+  committed: string[];
+  /** Branches of the pull requests it opened (desktop app sessions only). */
+  pulls: string[];
+  /** How many messages you sent it, when its files say. */
+  prompts: number | null;
+  /** Unix seconds. */
+  started: number;
+  active: number;
+  archived: boolean;
+}
 
 /** A worktree compared with a base, and its uncommitted changes: loaded when its card opens. */
 export interface WorktreeDetails {
@@ -350,20 +381,42 @@ export interface ViewSettings {
   tags: boolean;
   /** The commit list's optional columns (Graph and Description are always shown). */
   columns: Record<Column, boolean>;
-  /** Changed files of a commit as a folder tree rather than a flat list. */
-  fileTree: boolean;
+  /**
+   * A commit's changed files: a flat list, a folder tree, or every change inline on one page (the
+   * changed lines with some context, as a pull request shows them).
+   */
+  files: 'list' | 'tree' | 'diff';
+  /** The details panel's share of the height, and its first column's share of its width (percent). */
+  detailsSize: number;
+  detailsSplit: number;
   /** Column widths in px; `graph: null` fits the graph's lanes. Description takes the rest. */
   widths: { graph: number | null } & Record<Column, number>;
 }
 
 export type Column = 'date' | 'author' | 'commit';
 
+/** A VS Code color theme, as its JSON files describe it (includes merged). */
+export interface CodeTheme {
+  name: string;
+  type: 'dark' | 'light';
+  colors: Record<string, string>;
+  tokenColors: unknown[];
+}
+
+/** A file's TextMate grammar (`scope`) and those it includes or embeds, each with its `scopeName`. */
+export interface Grammars {
+  scope: string;
+  grammars: Record<string, unknown>[];
+}
+
 export const DEFAULT_VIEW: ViewSettings = {
   worktrees: true,
   branches: true,
   tags: true,
   columns: { date: true, author: true, commit: true },
-  fileTree: false,
+  files: 'list',
+  detailsSize: 40,
+  detailsSplit: 40,
   widths: { graph: null, date: 170, author: 140, commit: 76 }
 };
 
@@ -385,6 +438,11 @@ export interface HostApi {
   openFolder(path: string): Promise<void>;
   /** Writes a commit message for the current changes into the Source Control input box. */
   generateCommitMessage(repo: string): Promise<void>;
+  /**
+   * What commit `rev`'s changes, or `repo`'s uncommitted ones (`rev` null), are about: 4 lines from
+   * Claude Code, given only the diff. With `cachedOnly`, a summary already written, or null.
+   */
+  summarize(repo: string, rev: string | null, cachedOnly: boolean): Promise<string | null>;
   copy(text: string): Promise<void>;
   getWorktreeDetails(path: string, base: string | null): Promise<WorktreeDetails>;
   /**
@@ -410,6 +468,22 @@ export interface HostApi {
   /** Signs in with the editor's GitHub account (it asks for consent), then loads them. */
   connectGitHub(repo: string): Promise<PullRequests>;
   openUrl(url: string): Promise<void>;
+  /** Claude Code sessions that ran in these folders (a repository's worktrees), most recent first. */
+  getClaudeSessions(folders: string[]): Promise<ClaudeSession[]>;
+  /** Opens it again: in the desktop app when it ran there, else `claude --resume` in a terminal. */
+  resumeClaudeSession(session: ClaudeSession): Promise<void>;
+  /** The branches stacked with `branch` on `base`: those built on it, and its whole stack (`Git.stack`). */
+  branchStack(
+    repo: string,
+    branch: string,
+    base: string
+  ): Promise<{ above: string[]; stack: string[] }>;
+  /** The unified diff between two revisions (see `DetailsPanel`'s range); `from` empty: what `to` changed. */
+  getPatch(repo: string, from: string, to: string): Promise<string>;
+  /** The editor's color theme, to color code as the editor does; null if it can't be read. */
+  getCodeTheme(): Promise<CodeTheme | null>;
+  /** The TextMate grammars to color a file with, from the installed extensions. */
+  getGrammars(file: string): Promise<Grammars | null>;
   getView(): Promise<ViewSettings>;
   setView(view: ViewSettings): Promise<void>;
 }
@@ -420,6 +494,8 @@ export type RpcResponse = { id: number; result?: unknown; error?: string };
 export type HostEvent =
   | { event: 'refresh' }
   | { event: 'repos' }
+  /** The color theme changed: code colors are due again. */
+  | { event: 'theme' }
   /** An action's git commands started (after its prompts) or finished; `key` is its `actionTarget`. */
   | { event: 'busy'; key: string; busy: boolean };
 

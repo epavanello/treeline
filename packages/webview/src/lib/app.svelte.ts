@@ -5,6 +5,7 @@ import {
   UNCOMMITTED,
   type Action,
   type BranchDetails,
+  type ClaudeSession,
   type Commit,
   type CommitDetails,
   type FileChange,
@@ -21,6 +22,7 @@ import {
 } from '@treeline/shared';
 import {
   branchRows,
+  primary,
   DEFAULT_BRANCH_FILTER,
   DEFAULT_WORKTREE_FILTER,
   type BranchFilter,
@@ -29,6 +31,7 @@ import {
   type WorktreeFilter
 } from './filters';
 import { layout } from './graph';
+import { resetHighlighter } from './highlight';
 import { host, onHostEvent, vscode } from './rpc';
 
 const PAGE = 300;
@@ -52,6 +55,7 @@ interface RepoView {
   showRemotes: boolean;
   showTags: boolean;
   showStashes: boolean;
+  showWorktrees: boolean;
   base: string | null;
   branchFilter: BranchFilter;
   worktreeFilter: WorktreeFilter;
@@ -71,6 +75,7 @@ class App {
   /** Tag badges in the graph (the Tags row is a row of its own, shown or not from View). */
   showTags = $state(true);
   showStashes = $state(true);
+  showWorktrees = $state(true);
   maxCommits = $state(PAGE);
   /** Branch HEAD is compared with; null = the host's default (origin/HEAD, main…). */
   base = $state<string | null>(null);
@@ -81,6 +86,8 @@ class App {
   error = $state<string | null>(null);
   loading = $state(false);
 
+  /** Bumped when the editor's color theme changes: diffs shown are colored again. */
+  themeVersion = $state(0);
   selected = $state<Commit | null>(null);
   /** Second commit for a comparison (Cmd/Ctrl+click). */
   compareWith = $state<Commit | null>(null);
@@ -109,6 +116,8 @@ class App {
   worktreeFilter = $state<WorktreeFilter>({ ...DEFAULT_WORKTREE_FILTER });
   /** The repository's pull requests on GitHub, or why there are none; null until asked. */
   pulls = $state<PullRequests | null>(null);
+  /** Claude Code sessions that ran in the repository's folders, most recent first (see sessions.ts). */
+  claudeSessions = $state.raw<ClaudeSession[]>([]);
   /** Every branch once, local and remote copies together (see filters.ts). */
   rows = $derived(this.data ? branchRows(this.data) : []);
   /** Each branch's row by name, local or remote: what it is paired with. */
@@ -248,6 +257,7 @@ class App {
       showRemotes: this.showRemotes,
       showTags: this.showTags,
       showStashes: this.showStashes,
+      showWorktrees: this.showWorktrees,
       maxCommits: this.maxCommits,
       base: this.base,
       focus: $state.snapshot(this.focus)
@@ -333,6 +343,45 @@ class App {
     if (repo === this.repo) this.pulls = pulls;
   }
 
+  /** Read from Claude Code's files after every load: cheap, the host reads only what changed. */
+  async loadClaudeSessions(data: GraphData) {
+    const repo = this.repo;
+    const folders = data.worktrees.filter((w) => !w.prunable).map((w) => w.path);
+    const sessions = await host.getClaudeSessions(folders).catch(() => []);
+    if (repo === this.repo) this.claudeSessions = sessions;
+  }
+
+  /**
+   * The Claude sessions behind a branch or a worktree, open ones first, then archived ones, each most
+   * recent first and with why: it committed
+   * to the branch, opened its pull request, ran in the worktree's folder, or was on the branch.
+   * The main worktree's folder says nothing: most sessions run there.
+   */
+  sessionsOf(branch: string | null | undefined, worktree?: Worktree) {
+    const folders = this.data?.worktrees.map((w) => w.path) ?? [];
+    /** The innermost worktree a session's folder is in. */
+    const folderOf = (cwd: string) =>
+      folders
+        .filter((f) => cwd === f || cwd.startsWith(`${f}/`))
+        .sort((a, b) => b.length - a.length)[0];
+    const out: { s: ClaudeSession; why: string }[] = [];
+    for (const s of this.claudeSessions) {
+      const why =
+        branch && s.committed.includes(branch)
+          ? 'committed to it'
+          : branch && s.pulls.includes(branch)
+            ? 'opened its pull request'
+            : worktree && !worktree.main && folderOf(s.cwd) === worktree.path
+              ? 'ran in this folder'
+              : branch && s.branches.includes(branch)
+                ? 'was on it'
+                : null;
+      if (why) out.push({ s, why });
+    }
+    // Already most recent first: a stable sort keeps that within each group
+    return out.sort((a, b) => +a.s.archived - +b.s.archived);
+  }
+
   /** Signs in with the editor's GitHub account (it asks for consent), then shows them. */
   async connectGitHub() {
     const repo = this.repo;
@@ -396,7 +445,10 @@ class App {
         this.running = e.busy
           ? [...this.running, e.key]
           : this.running.filter((k, i) => i !== this.running.indexOf(e.key));
-      else void this.loadRepos(this.repo ?? undefined);
+      else if (e.event === 'theme') {
+        resetHighlighter();
+        this.themeVersion++;
+      } else void this.loadRepos(this.repo ?? undefined);
     });
   }
 
@@ -416,6 +468,7 @@ class App {
     this.data = null;
     this.branchDetails = {};
     this.pulls = null;
+    this.claudeSessions = [];
     await this.refresh();
   }
 
@@ -427,6 +480,7 @@ class App {
       showRemotes: this.showRemotes,
       showTags: this.showTags,
       showStashes: this.showStashes,
+      showWorktrees: this.showWorktrees,
       base: this.base,
       branchFilter: this.branchFilter,
       worktreeFilter: this.worktreeFilter
@@ -441,6 +495,7 @@ class App {
     this.showRemotes = saved?.showRemotes ?? true;
     this.showTags = saved?.showTags ?? true;
     this.showStashes = saved?.showStashes ?? true;
+    this.showWorktrees = saved?.showWorktrees ?? true;
     this.base = saved?.base ?? null;
     this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter };
     this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter };
@@ -494,6 +549,7 @@ class App {
       void this.preloadWorktreeDetails(data);
       void this.preloadBranchDetails(data);
       void this.loadPulls();
+      void this.loadClaudeSessions(data);
       const seen = data.commits.filter((c) => !isUncommitted(c)).map((c) => c.author);
       this.knownAuthors = [...new Set([...this.knownAuthors, ...this.authors, ...seen])].sort(
         (a, b) => a.localeCompare(b)
@@ -537,6 +593,24 @@ class App {
     this.hidden = this.hidden.filter((b) => !branches.includes(b));
     this.maxCommits = PAGE;
     void this.reload();
+  }
+
+  /**
+   * Shows `name` with the compare base and, in a stack of branches (stacked pull requests), those
+   * built on it (`above`) or its whole stack: every branch sharing a commit with it the base lacks.
+   */
+  async showStack(name: string, part: 'base' | 'above' | 'stack') {
+    const base = this.data?.compare?.base;
+    if (!base || !this.repo) return;
+    const names = part === 'base' ? [] : (await host.branchStack(this.repo, name, base))[part];
+    const show = new Set([name, base]);
+    const skip = new Set([this.rowOf.get(name), this.rowOf.get(base)]);
+    // One name per branch (its local copy when there is one), only branches the rows know
+    for (const n of names) {
+      const row = this.rowOf.get(n);
+      if (row && !skip.has(row)) show.add(primary(row).ref.name);
+    }
+    this.setBranches([...show]);
   }
 
   /** Hide a branch from "all", or bring it back. */
@@ -615,9 +689,25 @@ class App {
     this.branchDiff = { base: c.base, mergeBase: c.mergeBase, files };
   }
 
+  /** A worktree as its branch (what its chip and card show), or its commit when detached. */
+  worktreeSummary(w: Worktree): RefSummary {
+    return (
+      this.data?.heads.find((h) => h.ref.name === w.branch) ?? {
+        ref: { kind: 'head', name: w.branch ?? `detached ${w.head.slice(0, 8)}` },
+        hash: w.head,
+        date: w.headDate ?? 0,
+        subject: w.headSubject ?? ''
+      }
+    );
+  }
+
+  private savingView?: ReturnType<typeof setTimeout>;
   setView(patch: Partial<ViewSettings>) {
+    if (Object.entries(patch).every(([k, v]) => this.view[k as keyof ViewSettings] === v)) return;
     this.view = { ...this.view, ...patch };
-    void host.setView($state.snapshot(this.view));
+    // Dragging a divider changes it on every frame: save once it settles
+    clearTimeout(this.savingView);
+    this.savingView = setTimeout(() => void host.setView($state.snapshot(this.view)), 300);
   }
 
   setShowTags(show: boolean) {
@@ -629,6 +719,12 @@ class App {
   setShowStashes(show: boolean) {
     if (this.showStashes === show) return;
     this.showStashes = show;
+    void this.reload();
+  }
+
+  setShowWorktrees(show: boolean) {
+    if (this.showWorktrees === show) return;
+    this.showWorktrees = show;
     void this.reload();
   }
 

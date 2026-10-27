@@ -43,6 +43,12 @@
       on: () => app.showStashes,
       set: (v: boolean) => app.setShowStashes(v),
       hint: 'Stash rows, each above the commit it was taken on.'
+    },
+    {
+      label: 'Worktrees',
+      on: () => app.showWorktrees,
+      set: (v: boolean) => app.setShowWorktrees(v),
+      hint: 'Other worktrees in the graph: their uncommitted changes as rows of their own, their folder badges, and the commits only a detached worktree is on. The Worktrees row keeps listing them.'
     }
   ];
   const included = $derived.by(() => {

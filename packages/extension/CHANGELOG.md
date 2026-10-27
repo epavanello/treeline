@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.0
+
+- Commit details, redesigned: the subject, then the message (its first lines, "Show all" for the rest),
+  the branches and tags on it (one badge for a branch and its remote copy), the author with their
+  avatar, a copyable hash, the parents as links to the graph. Uncommitted changes and other worktrees
+  get the same layout: a worktree shows its card, with a copyable folder
+- A third way to look at the changed files, besides the list and the tree: every change inline on one
+  page, as a pull request shows them, colored with your editor's own theme and grammars. Big and
+  generated files start folded; a file's name opens its diff in the editor
+- Both dividers of the details panel can be dragged, and the panel remembers its size
+- The file list shows how many lines each file adds and removes
+- "Summarize": Claude Code (Haiku) writes 4 lines on what a commit's, or a folder's uncommitted,
+  changes do, from the diff alone (no project files, settings or tools). It shows again next time
+- Commit messages from Claude no longer load your Claude Code settings, hooks or CLAUDE.md: faster
+- Stacked pull requests: a branch's Graph Filter menu (and a worktree's) shows it with the base, with
+  the branches built on it, or with its whole stack
+- With a branch filter on, only the branches you picked are named in the graph (remote ones too, even
+  with remote branches left out), not the others that point into their history
+- Include → Worktrees: leave the other worktrees' rows and folder badges out of the graph
+- The checked-out branch comes first among the branch chips, and the open worktree first among the
+  worktrees
+- Claude Code sessions that ran in a worktree or on a branch show in its card, and its menu resumes
+  them (in the desktop app, or in a terminal)
+- Fixed: the context menu of a worktree whose branch was never pushed didn't open
+- Fixed: a worktree's count of uncommitted changes counted a new folder as one change; it now counts
+  its files, like the file list
+
 ## 0.6.0
 
 - Hover cards are the legend of their chip: every line starts with the very symbol the chip shows

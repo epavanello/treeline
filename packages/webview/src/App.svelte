@@ -97,13 +97,19 @@
         No Git repository found in this workspace.
       </div>
     {:else}
-      <Resizable.PaneGroup direction="vertical" class="min-h-0 flex-1">
+      <Resizable.PaneGroup
+        direction="vertical"
+        class="min-h-0 flex-1"
+        onLayoutChange={(l) => {
+          if (l.length === 2) app.setView({ detailsSize: Math.round(l[1]) });
+        }}
+      >
         <Resizable.Pane order={1}>
           <CommitList bind:scroller />
         </Resizable.Pane>
         {#if app.selected || app.branchDiff || app.worktreePanel}
           <Resizable.Handle />
-          <Resizable.Pane order={2} defaultSize={40} minSize={15}>
+          <Resizable.Pane order={2} defaultSize={app.view.detailsSize} minSize={15}>
             <DetailsPanel />
           </Resizable.Pane>
         {/if}

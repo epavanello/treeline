@@ -91,7 +91,7 @@ export interface BranchRow {
 export const primary = (row: BranchRow) => (row.local ?? row.remote)!;
 const latest = (row: BranchRow) => Math.max(row.local?.date ?? 0, row.remote?.date ?? 0);
 
-/** Every branch once: local ones with their remote, then remote ones nobody has locally. */
+/** Every branch once, the checked-out one first, then the most recent: local ones with their remote, and remote ones nobody has locally. */
 export function branchRows(data: GraphData): BranchRow[] {
   const remotes = new Map(data.remoteHeads.map((r) => [r.ref.name, r]));
   const paired = new Set<string>();
@@ -105,7 +105,8 @@ export function branchRows(data: GraphData): BranchRow[] {
     return { local, remote };
   });
   for (const remote of data.remoteHeads) if (!paired.has(remote.ref.name)) rows.push({ remote });
-  return rows.sort((a, b) => latest(b) - latest(a));
+  const current = (row: BranchRow) => +(!!row.local && row.local.ref.name === data.currentBranch);
+  return rows.sort((a, b) => current(b) - current(a) || latest(b) - latest(a));
 }
 
 /** A branch's name on the remote, which is what pull requests know it by. */

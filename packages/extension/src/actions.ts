@@ -7,7 +7,7 @@
 import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { ago, type Action, type Upstream } from '@treeline/shared';
+import { ago, type Action, type ClaudeSession, type Upstream } from '@treeline/shared';
 import type { Git } from './git';
 
 const ask = (prompt: string, value = '') =>
@@ -125,6 +125,30 @@ export const openFolder = (dir: string) =>
   vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(dir), {
     forceNewWindow: true
   });
+
+/**
+ * A desktop app session opens in the app (the link its own sidebar uses); any other, or one whose app
+ * record is gone, resumes in a terminal in its folder: Claude Code finds a session by its folder.
+ */
+export async function resumeClaudeSession(s: ClaudeSession) {
+  if (s.desktopId && /^local_[\w-]+$/.test(s.desktopId)) {
+    await vscode.env.openExternal(vscode.Uri.parse(`claude://claude.ai/epitaxy/${s.desktopId}`));
+    return;
+  }
+  if (!/^[\w-]+$/.test(s.id)) return;
+  if (!existsSync(s.cwd)) {
+    void vscode.window.showErrorMessage(
+      `${s.cwd} no longer exists: Claude Code resumes a session only in the folder it ran in.`
+    );
+    return;
+  }
+  const terminal = vscode.window.createTerminal({
+    name: `Claude: ${s.title.slice(0, 40)}`,
+    cwd: s.cwd
+  });
+  terminal.show();
+  terminal.sendText(`claude --resume ${s.id}`);
+}
 
 /** A git argument list, or a callback run after the preceding commands succeeded. */
 type Step = string[] | (() => unknown);

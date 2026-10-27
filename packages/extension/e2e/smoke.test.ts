@@ -36,6 +36,7 @@ const query = (): GraphQuery => ({
   showRemotes: true,
   showTags: true,
   showStashes: true,
+  showWorktrees: true,
   maxCommits: 100
 });
 const hashOf = (subject: string) =>

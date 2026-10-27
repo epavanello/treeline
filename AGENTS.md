@@ -55,6 +55,10 @@ branch with main, review diffs with working language features, juggle worktrees 
    hover card and the ref's context menu. **Hidden branches** (`GraphQuery.hidden`, the opposite of
    `branches`): `--exclude=<name>` before `--branches`/`--remotes` drops the commits only they have; set from
    the picker's eye button or the "Show Only / Also Show / Stop Showing / Hide This Branch" menu items.
+   **Stacks** (stacked pull requests), in the same "Graph Filter" submenu, also on a worktree chip with
+   a branch: the branch and the base, plus those built on it (`for-each-ref --contains <branch>`), or
+   its whole stack (`--contains` its oldest own commit of `base..branch`: every branch sharing a commit
+   with it the base lacks). `Git.stack` → `app.showStack()`, one name per branch row.
    **Branch rows** (`branchRows()` in `filters.ts`, `app.rows` / `app.rowOf`): a local branch and its
    remote copy (its upstream, else `<remote>/<same name>`) are one chip; remote branches nobody has
    locally follow (dashed chips). `BranchState`'s cloud: filled = both (with upstream ↑↓), outline =
@@ -95,6 +99,37 @@ branch with main, review diffs with working language features, juggle worktrees 
 5. **Commit messages with Claude** (`commitMessage.ts`): `claude -p --model haiku` run in a temp dir with the
    staged diff (or all changes) and the last 15 subjects on stdin; falls back to `vscode.lm`. The result goes
    into the Source Control input box. Triggers: ✨ in the Source Control title bar, the Uncommitted Changes menu.
+   **Summaries** (`claude.ts`): the details panel's "Summarize" button (`ChangeSummary`) asks for 4 lines on
+   what a commit's or a folder's uncommitted changes are about, from `Git.changes` (the diff, new files'
+   text included) alone. Both go through `claude()`: `--tools ""`, `--strict-mcp-config`,
+   `--setting-sources ""`, `--no-session-persistence`, run in the temp dir, so no CLAUDE.md, hooks or tools
+   (`--bare` would ignore a subscription's sign-in). Summaries are kept in `workspaceState`: a commit's by
+   hash, uncommitted changes by their diff's sha1 (`summarize(…, cachedOnly)` shows them again).
+   **Claude sessions** (`sessions.ts`, vscode-free): which Claude Code sessions ran in the repository's
+   folders, from Claude Code's transcripts (`~/.claude/projects/<folder, non-alphanumerics as ->/<id>.jsonl`:
+   `cwd`, `gitBranch`, `timestamp`, `custom-title`; only their start and last 256 KB are read, again only
+   when a file changed) and the desktop app's records (`<its data folder>/claude-code-sessions/*/*/local_<id>.json`:
+   `cliSessionId`, `title`, `isArchived`, `writtenBranches` = branches it committed to, `prs` with `own`).
+   `app.sessionsOf(branch, worktree)` ranks why: committed to it, opened its PR, ran in the worktree's
+   folder (not the main one: most sessions run there), was on it; open ones before archived ones. The
+   message count is the latest `turnPosition.promptIndex` read, or the app's `completedTurns`. Shown in
+   the details panel (`ClaudeSessions`: collapsed to a count, its open state shared by every panel; the
+   worktree's, the base diff's, and a commit's for the branches it's the tip of) and in the
+   branch/worktree menus (`claudeItems`: one submenu, archived ones under a heading, dimmed; a submenu
+   inside a submenu opens behind it). Not in the hover cards. Resuming
+   (`resumeClaudeSession` in `actions.ts`): a desktop session opens with `claude://claude.ai/epitaxy/<local_id>`
+   (the link the app's own sidebar uses; `claude://code/continue?session=` skips archived ones), any other
+   runs `claude --resume <id>` in a terminal in its folder (Claude Code finds sessions by folder).
+8. **Details panel**: a legend like the cards (`RefCard`'s `LEGEND`/`SUB`; a worktree shows its very
+   card): subject and body, author avatar, copyable hash and folder, parents and compared commits as
+   links (`app.reveal`). Files as a list, a tree, or **inline diff** (`ViewSettings.files`): `getPatch`
+   (`Git.patch`: `git diff`, untracked files written as additions) parsed by `patch.ts`, one `DiffFile`
+   per file (sticky header, folded when big or generated). Code is colored with **Shiki**
+   (`highlight.ts`, JavaScript regex engine) fed the editor's **own theme and grammars**: the host reads
+   the active theme's JSON (its `include`s, plus `editor.tokenColorCustomizations`) and the grammars
+   the installed extensions contribute (`codeColors.ts`, vscode-free; `theme.ts` passes
+   `vscode.extensions.all`), since a webview can't ask the editor for either. A theme change posts
+   `{ event: 'theme' }`. Both dividers drag and are remembered (`detailsSize`, `detailsSplit`).
 6. **Pull requests** (`pulls.ts`, vscode-free, unit-tested with a fake `gh`): one GraphQL query for the
    50 most recently updated PRs (state, review decision, latest review per reviewer, review requests,
    review threads resolved/unresolved, checks rollup), run by `gh api graphql` with gh's active
@@ -148,6 +183,9 @@ packages/
     src/git.ts        vscode-free git CLI layer (log, refs, stashes, details, diffs). Unit-tested.
     src/actions.ts    every write operation; native prompts only when needed (see "Fewer prompts")
     src/commitMessage.ts  commit message generation (Claude CLI, fallback vscode.lm)
+    src/claude.ts     the context-free `claude -p` call, and change summaries
+    src/sessions.ts   Claude Code sessions per folder and branch, from Claude Code's and the desktop app's files
+    src/codeColors.ts the color theme and TextMate grammars from extensions' JSON (theme.ts: installed ones)
     src/pulls.ts      GitHub pull requests (gh CLI, fallback the editor's GitHub account)
     src/repos.ts      repo discovery + change events via the built-in vscode.git API (fallback: watcher)
     src/diff.ts       `treeline:` TextDocumentContentProvider + vscode.diff
@@ -236,6 +274,7 @@ Install the build: `code --install-extension packages/extension/treeline.vsix`
   (no dynamic `import()`), no remote resources.
 - Tailwind's `@source '.'` in `app.css` is needed for the browser preview (Vite root = `preview/`).
 - `vsce package --no-dependencies`: everything must be bundled; dependencies are devDependencies.
+  esbuild prefers `module` over `main` (`mainFields`): jsonc-parser's UMD build can't be bundled.
 - Svelte 5 proxies objects put in `$state`: one compared by identity later (a token such as
   `app.working`, `app.notice`) must be `$state.raw`, or the comparison never holds. A bits-ui checkbox
   driven from app state: `bind:checked={get, set}` with setters that ignore unchanged values, never

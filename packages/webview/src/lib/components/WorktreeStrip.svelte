@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { since, type RefSummary, type Worktree } from '@treeline/shared';
+  import { since } from '@treeline/shared';
   import {
     FolderGit2,
     GitCommitHorizontal,
@@ -21,7 +21,7 @@
     worktreeMatches,
     type WorktreeFilter
   } from '$lib/filters';
-  import { worktreeItems } from '$lib/menus';
+  import { visibility, worktreeItems } from '$lib/menus';
   import { host } from '$lib/rpc';
   import { Button } from '$lib/components/ui/button';
   import { cn } from '$lib/utils';
@@ -36,15 +36,15 @@
   import WorktreeState from './WorktreeState.svelte';
 
   /**
-   * Every worktree of the repository, one chip each, filtered from the title: the main one and the
-   * one this graph shows first, then the others by their latest commit, like the branches. (git
+   * Every worktree of the repository, one chip each, filtered from the title: the one this graph
+   * shows first, then the main one, then the others by their latest commit, like the branches. (git
    * lists them main first, then by folder name: `data.worktrees` keeps that order, which the
    * actions rely on.)
    */
   const all = $derived(
     [...(app.data?.worktrees ?? [])].sort(
       (a, b) =>
-        +b.main - +a.main || +b.current - +a.current || (b.headDate ?? 0) - (a.headDate ?? 0)
+        +b.current - +a.current || +b.main - +a.main || (b.headDate ?? 0) - (a.headDate ?? 0)
     )
   );
   const f = $derived(app.worktreeFilter);
@@ -60,13 +60,6 @@
   const base = $derived(app.data?.compare?.base ?? 'the base');
   const folder = (path: string) => path.split(/[\\/]/).pop();
   /** The branch it has checked out, as the branch row knows it (a stand-in when detached). */
-  const summaryOf = (w: Worktree): RefSummary =>
-    app.data?.heads.find((h) => h.ref.name === w.branch) ?? {
-      ref: { kind: 'head', name: w.branch ?? `detached ${w.head.slice(0, 8)}` },
-      hash: w.head,
-      date: w.headDate ?? 0,
-      subject: w.headSubject ?? ''
-    };
 </script>
 
 {#snippet menu()}
@@ -165,7 +158,7 @@
           </Button>
         {/if}
         {#each worktrees as w (w.path)}
-          {@const r = summaryOf(w)}
+          {@const r = app.worktreeSummary(w)}
           {@const pr =
             w.branch && app.rowOf.get(w.branch)
               ? pullsOf(app.rowOf.get(w.branch)!, app.filterContext.pulls)[0]
@@ -187,7 +180,12 @@
                   onfocus: () => !w.prunable && app.loadWorktreeDetails(w.path),
                   onclick: () => app.openWorktree(w),
                   ondblclick: () => !w.current && !w.prunable && host.openFolder(w.path),
-                  oncontextmenu: (e: MouseEvent) => open(e, worktreeItems(w))
+                  // A worktree on a branch: that branch's graph filters too
+                  oncontextmenu: (e: MouseEvent) =>
+                    open(e, [
+                      ...worktreeItems(w),
+                      ...(w.branch ? (['separator', visibility(w.branch)] as const) : [])
+                    ])
                 })}
                 class={cn(
                   'flex h-6 max-w-[28rem] shrink-0 items-center gap-1.5 rounded-sm border px-2 hover:bg-accent data-menu-open:bg-accent',

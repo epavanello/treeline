@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { actionTarget, type Action } from '@treeline/shared';
 import { runAction } from './actions';
 import { BranchDetailsCache } from './branchDetails';
+import { Summaries } from './claude';
+import { ClaudeSessions } from './sessions';
 import { fillCommitMessage } from './commitMessage';
 import { RevisionProvider, SCHEME } from './diff';
 import { Git } from './git';
@@ -19,6 +21,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
   const branchDetails = new BranchDetailsCache(git, {
     get: () => ctx.workspaceState.get('branchDetails'),
     set: (value) => ctx.workspaceState.update('branchDetails', value)
+  });
+  const summaries = new Summaries(git, {
+    get: () => ctx.workspaceState.get('summaries'),
+    set: (value) => ctx.workspaceState.update('summaries', value)
   });
   const refresh = () => GraphPanel.post({ event: 'refresh' });
   const repos = new Repos(git, builtin, refresh, () => GraphPanel.post({ event: 'repos' }));
@@ -61,6 +67,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
     repos,
     pulls,
     branchDetails,
+    summaries,
+    claudeSessions: new ClaudeSessions(),
     log,
     run,
     commitMessage: (repo: string) => fillCommitMessage(git, repo, builtin?.repositories ?? [])
@@ -77,6 +85,13 @@ export async function activate(ctx: vscode.ExtensionContext) {
     repos,
     status,
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionProvider(git)),
+    // Diffs in the panel are colored with the theme's colors
+    vscode.window.onDidChangeActiveColorTheme(() => GraphPanel.post({ event: 'theme' })),
+    vscode.workspace.onDidChangeConfiguration(
+      (e) =>
+        e.affectsConfiguration('editor.tokenColorCustomizations') &&
+        GraphPanel.post({ event: 'theme' })
+    ),
     vscode.commands.registerCommand('treeline.view', () => GraphPanel.show(ctx, services)),
     vscode.commands.registerCommand('treeline.fetch', async () => {
       for (const repo of await repos.list()) {

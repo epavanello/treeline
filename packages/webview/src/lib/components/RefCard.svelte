@@ -1,6 +1,9 @@
 <script lang="ts" module>
   /** A secondary line inside a card's value: muted, smaller. */
   export const SUB = 'block text-[11px] text-muted-foreground';
+  /** A legend: each line's symbol in a narrow right-aligned column, then what it means. */
+  export const LEGEND =
+    'grid grid-cols-[3.25rem_minmax(0,1fr)] gap-x-2.5 gap-y-2 [&_dt]:flex [&_dt]:items-start [&_dt]:justify-end [&_dt]:pt-[3px] [&_dt]:text-muted-foreground';
 </script>
 
 <script lang="ts">
@@ -19,6 +22,7 @@
   } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import { isBase, isDisposable, pullsOf } from '$lib/filters';
+  import { STATUS_COLOR } from '$lib/fileStatus';
   import { cn } from '$lib/utils';
   import AuthorStack from './AuthorStack.svelte';
   import BranchState from './BranchState.svelte';
@@ -32,7 +36,18 @@
    * with the very symbol the chip shows (the same component draws it), then says what it means.
    * A worktree's card is its branch's plus what makes it a worktree: uncommitted files, its folder.
    */
-  let { r, footer, worktree: w }: { r: RefSummary; footer: string; worktree?: Worktree } = $props();
+  let {
+    r,
+    footer,
+    worktree: w,
+    files = true
+  }: {
+    r: RefSummary;
+    footer?: string;
+    worktree?: Worktree;
+    /** List a worktree's uncommitted files (not where they're listed beside it). */
+    files?: boolean;
+  } = $props();
 
   const STALE = 30 * 86400;
   const { ref } = $derived(r);
@@ -101,13 +116,6 @@
     return { title: 'Only on your machine', detail: 'never pushed' };
   });
 
-  const STATUS: Record<string, string> = {
-    A: 'text-[var(--vscode-gitDecoration-addedResourceForeground)]',
-    U: 'text-[var(--vscode-gitDecoration-untrackedResourceForeground)]',
-    M: 'text-[var(--vscode-gitDecoration-modifiedResourceForeground)]',
-    D: 'text-[var(--vscode-gitDecoration-deletedResourceForeground)]',
-    R: 'text-[var(--vscode-gitDecoration-renamedResourceForeground)]'
-  };
   const FILES = 6;
 </script>
 
@@ -130,9 +138,7 @@
 </div>
 
 <!-- The legend: on the left the chip's symbol, on the right what it means -->
-<dl
-  class="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-x-2.5 gap-y-2 border-t pt-2 [&_dt]:flex [&_dt]:items-start [&_dt]:justify-end [&_dt]:pt-[3px] [&_dt]:text-muted-foreground"
->
+<dl class="{LEGEND} border-t pt-2">
   {#if w}
     <dt>
       {#if w.status}<WorktreeState status={w.status} sync={false} faded />{/if}
@@ -145,11 +151,15 @@
         <span class="font-semibold text-dirty"
           >{plural(w.status.changes, 'uncommitted change')}</span
         >
-        {#if wd}
+        {#if !files}
+          <span class={SUB}>listed beside</span>
+        {:else if wd}
           <ul class="mt-1 flex flex-col gap-px">
             {#each wd.files.slice(0, FILES) as f (f.path)}
               <li class="flex min-w-0 items-center gap-1.5 font-mono text-[11px]">
-                <span class={cn('w-2.5 shrink-0 font-bold', STATUS[f.status])}>{f.status}</span>
+                <span class={cn('w-2.5 shrink-0 font-bold', STATUS_COLOR[f.status])}
+                  >{f.status}</span
+                >
                 <span class="truncate" title={f.path}>{f.path}</span>
               </li>
             {/each}
@@ -329,4 +339,4 @@
     <dd><CopyField value={w?.path ?? ref.worktree!} what="folder path" /></dd>
   {/if}
 </dl>
-<p class="border-t pt-1.5 text-[11px] text-muted-foreground">{footer}</p>
+{#if footer}<p class="border-t pt-1.5 text-[11px] text-muted-foreground">{footer}</p>{/if}

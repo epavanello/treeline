@@ -34,7 +34,7 @@
     const at = new Map<string, Worktree[]>();
     // A worktree's Uncommitted Changes row carries its folder badge: not its commit too
     const withRow = new Set(commits.flatMap((c) => (c.worktree ? [c.worktree] : [])));
-    for (const w of app.data?.worktrees ?? [])
+    for (const w of app.showWorktrees ? (app.data?.worktrees ?? []) : [])
       if (!w.branch && !w.prunable && !withRow.has(w.path))
         at.set(w.head, [...(at.get(w.head) ?? []), w]);
     return at;
