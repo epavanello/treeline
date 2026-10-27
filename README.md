@@ -4,45 +4,88 @@
 
 # Treeline
 
-**Git Graph, rebuilt for how you work today: feature branches, rebased PRs, worktrees.**
+**Git Graph, rebuilt for how you work today: feature branches, stacked PRs, worktrees and Claude Code.**
 For VS Code and Cursor.
 
 [![VS Code Marketplace](https://img.shields.io/visual-studio-marketplace/v/epavanello.treeline?label=VS%20Code%20Marketplace&color=0a7bbb)](https://marketplace.visualstudio.com/items?itemName=epavanello.treeline)
 [![Open VSX](https://img.shields.io/open-vsx/v/epavanello/treeline?label=Open%20VSX&color=a60ee5)](https://open-vsx.org/extension/epavanello/treeline)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[![Treeline in VS Code: open the graph, filter your branch's commits, review the diff, hide the noisy branches](docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
+[![Treeline in VS Code: compare your branch with main, review its diff, juggle worktrees and stacked pull requests](docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
 
-▶ **[Watch the 1-minute demo, with sound](https://youtu.be/tYY95Xhoqss)**
+▶ **[Watch the demo, with sound](https://youtu.be/tYY95Xhoqss)**
+
+[Compare](#-your-branch-vs-main) · [Review](#-review-before-the-pr-does) · [Worktrees](#%EF%B8%8F-worktrees-at-a-glance) ·
+[Stacks & PRs](#-stacked-pull-requests) · [Cleanup](#-clean-up-in-one-go) · [Claude Code](#-claude-code-built-in)
 
 </div>
 
-## Why Treeline
+## 🌿 Your branch vs main
 
-|     |                                                                                                                                                                                                                                                                                                    |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🌿  | **Your branch vs main, always on top.** ↑ahead ↓behind are filters: one click shows just those commits. Commits that landed through "Rebase and merge" or a cherry-pick count as merged, and a rewritten history gets a warning instead of thousands of bogus ↑↓.                                  |
-| 📋  | **Review before the PR does.** **Diff** lists every file changed since the fork, uncommitted work included, as a list or a folder tree. Diffs open on your real files, so Go to Definition, errors and links just work.                                                                            |
-| 🗂️  | **Worktrees, branches and tags at a glance.** One row each, pinned under the compare bar: status, ahead/behind main, what to push or pull. Hover for the full card, click to jump to the commit, **+** to create (worktree picker, next semver tag).                                               |
-| 🎯  | **See only what matters.** Show only some branches, or hide the noisy ones, from the branch dropdown or any branch's right-click menu. Local and remote branches, with their age and state, in one searchable list.                                                                                |
-| 🔀  | **Pull requests where you look.** Each branch's card shows its pull requests: state, reviewers and their verdicts, unresolved conversations, checks. Through your signed-in gh CLI, or your editor's GitHub account.                                                                               |
-| 🧹  | **Clean up in one click.** Filter the branch and worktree rows to yours, merged ones (rebased copies count), ones deleted on the remote or untouched for a month, then delete them all (local and remote copies) with one confirmation that says what would be lost. Every branch shows its owner. |
-| ✨  | **Commit messages by Claude.** Your local [Claude Code](https://claude.com/claude-code) CLI (or any model your editor provides) writes the message in your repository's style.                                                                                                                     |
-| 🙅  | **Fewer dialogs, no guessing.** Treeline asks only when something would be lost. Every button and menu item explains itself on hover, and whatever is running shows a spinner.                                                                                                                     |
-| 📜  | **Everything you loved in Git Graph.** Infinite history, author filter, find, compare any two commits, resizable columns, and menus for checkout, merge, rebase, cherry-pick, revert, reset, tag, push, pull, stash…                                                                               |
+**↑ahead ↓behind, always on top, and they're filters.** One click shows just your branch's commits.
+Commits that landed through "Rebase and merge" or a cherry-pick count as merged, not as bogus ↑↓.
 
-![Treeline in VS Code: your branch vs main, worktrees, branches, tags and the commit graph](docs/hero.png)
+![Compare with main: ahead and behind as filters](docs/features/compare.gif)
 
-<table>
-  <tr>
-    <td><img src="docs/branches.png" alt="The branch dropdown: local and remote branches with their state, and a branch's hover card" /></td>
-    <td><img src="docs/review.png" alt="Every change since the fork as a folder tree, next to a worktree's hover card" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Every branch, its state and its card</sub></td>
-    <td align="center"><sub>Review the whole branch; a worktree's card</sub></td>
-  </tr>
-</table>
+## 🔍 Review before the PR does
+
+**Every commit, readable.** Message, author, the branches on it, a copyable hash, its parents one click away.
+
+![The details panel of a commit](docs/features/details.gif)
+
+**Inline diffs, in your editor's colors.** Every change on one page, like a pull request, highlighted
+with your own theme and grammars. **Diff** shows the whole branch since the fork, uncommitted work included,
+and diffs open on your real files, so Go to Definition just works.
+
+![Inline diff colored by the editor's theme](docs/features/inline-diff.gif)
+
+## 🗂️ Worktrees at a glance
+
+**One chip per worktree:** its branch, ↑↓ vs main, its uncommitted files on hover, its own row in the graph.
+Create one from any branch with **+**, open it, or bring its branch back to the main folder.
+
+![Worktrees: chips, hover cards and graph rows](docs/features/worktrees.gif)
+
+## 🥞 Stacked pull requests
+
+**See a stack as one thing.** Right-click a branch → Graph Filter: it with main, with the branches built
+on it, or its whole stack.
+
+![Graph Filter: a branch's whole stack](docs/features/stack.gif)
+
+**Pull requests where you look.** State, reviewers and their verdicts, open conversations and checks on
+every branch, through your `gh` CLI or the editor's GitHub account. Every branch shows its owner.
+
+![A branch's pull request on its card](docs/features/pull-requests.gif)
+
+## 🧹 Clean up in one go
+
+**Filter to merged, gone or stale branches, then delete them all** with one confirmation that says what
+would be lost. Rebased, cherry-picked and squash-merged branches count as merged.
+
+![Deleting the merged branches in one go](docs/features/cleanup.gif)
+
+## ✨ Claude Code, built in
+
+**Sessions per branch and worktree.** The Claude Code sessions that worked on a branch show on its card;
+its menu resumes them, in the desktop app or a terminal.
+
+![Claude Code sessions of a worktree](docs/features/sessions.gif)
+
+**Summarize any diff.** Four lines on what a commit, or your uncommitted work, does. Claude sees only
+the diff: no project files, settings or tools.
+
+![Summarize: four lines from the diff alone](docs/features/summarize.gif)
+
+**Commit messages in your repository's style,** from ✨ in the Source Control title bar.
+
+![Claude writes the commit message](docs/features/commit-message.gif)
+
+## 📜 And everything you loved in Git Graph
+
+Infinite history · author and branch filters · find · compare any two commits · resizable columns ·
+checkout, merge, rebase, cherry-pick, revert, reset, tag, push, pull, stash. Treeline asks only when
+something would be lost, and every button explains itself on hover.
 
 ## Install
 
@@ -51,7 +94,9 @@ Search **Treeline** in the Extensions view of VS Code, Cursor, VSCodium or Winds
 [Open VSX](https://open-vsx.org/extension/epavanello/treeline), and every release also attaches the `.vsix`
 to [GitHub Releases](https://github.com/epavanello/treeline/releases/latest).
 
-Then run **Treeline: View Git Graph**, or click **Git Graph** in the status bar.
+Then run **Treeline: View Git Graph**, or click **Git Graph** in the status bar. The Claude features need
+[Claude Code](https://claude.com/claude-code) (`claude` on your PATH); commit messages fall back to any
+model your editor provides.
 
 ## Develop
 
