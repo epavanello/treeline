@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+- Fixed: in a narrow Description column, branch badges let their cloud, avatar and worktree state
+  spill over the commit's text; they now cut what doesn't fit at their edge
+
 ## 0.7.0
 
 - Commit details, redesigned: the subject, then the message (its first lines, "Show all" for the rest),

@@ -2,7 +2,7 @@
   "name": "treeline",
   "displayName": "Treeline — Git Graph",
   "description": "A fast, minimal Git Graph for VS Code and Cursor, built for branches, worktrees and reviews.",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "publisher": "epavanello",
   "license": "MIT",
   "author": "Emanuele Pavanello",

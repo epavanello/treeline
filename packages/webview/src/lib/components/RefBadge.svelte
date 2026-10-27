@@ -76,7 +76,9 @@
     <span
       {...trigger}
       class={cn(
-        'inline-flex h-[18px] max-w-56 min-w-10 cursor-context-menu items-center gap-1 rounded-sm border px-1.5 text-xs leading-none transition-colors',
+        // Squeezed (a narrow column, several badges), what doesn't fit is cut at its edge: the cloud,
+        // the avatar and the worktree state never shrink, so they would spill over the next badge
+        'inline-flex h-[18px] max-w-56 min-w-10 cursor-context-menu items-center gap-1 overflow-hidden rounded-sm border px-1.5 text-xs leading-none transition-colors',
         // Its lane colour, filled more on hover and while its context menu is open
         '[border-color:var(--c)] [background:color-mix(in_srgb,var(--c)_18%,transparent)]',
         'hover:[background:color-mix(in_srgb,var(--c)_35%,transparent)] data-menu-open:[background:color-mix(in_srgb,var(--c)_35%,transparent)]',
