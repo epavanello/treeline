@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2
+
+- Fixed: the folder badge on another worktree's Uncommitted Changes row opened a card saying its
+  branch was never pushed, with no owner or pull request; it now shows that branch's card
+- The store page goes feature by feature, each with a short clip from a new demo video
+
 ## 0.7.1
 
 - Fixed: in a narrow Description column, branch badges let their cloud, avatar and worktree state

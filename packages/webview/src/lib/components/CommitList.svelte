@@ -242,12 +242,7 @@
                 >
                   <RefBadge
                     ref={{ kind: 'head', name: folder, worktree: w.path }}
-                    card={{
-                      ref: { kind: 'head', name: folder },
-                      hash: w.head,
-                      date: w.headDate ?? 0,
-                      subject: w.headSubject ?? ''
-                    }}
+                    card={app.worktreeSummary(w)}
                     detached
                     color={laneColor(row.color)}
                     current={w.current}

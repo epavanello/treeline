@@ -11,9 +11,9 @@ For VS Code and Cursor.
 [![Open VSX](https://img.shields.io/open-vsx/v/epavanello/treeline?label=Open%20VSX&color=a60ee5)](https://open-vsx.org/extension/epavanello/treeline)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[![Treeline in VS Code: compare your branch with main, review its diff, juggle worktrees and stacked pull requests](docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
+[![Treeline in VS Code: compare your branch with main, review its diff, juggle worktrees and stacked pull requests](docs/demo.gif)](https://youtu.be/eXORu_KgFKw)
 
-▶ **[Watch the demo, with sound](https://youtu.be/tYY95Xhoqss)**
+▶ **[Watch the demo, with sound](https://youtu.be/eXORu_KgFKw)**
 
 [Compare](#-your-branch-vs-main) · [Review](#-review-before-the-pr-does) · [Worktrees](#%EF%B8%8F-worktrees-at-a-glance) ·
 [Stacks & PRs](#-stacked-pull-requests) · [Cleanup](#-clean-up-in-one-go) · [Claude Code](#-claude-code-built-in)

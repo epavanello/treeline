@@ -2,9 +2,9 @@
 
 **Git Graph, rebuilt for how you work today: feature branches, stacked PRs, worktrees and Claude Code.**
 
-[![Treeline in VS Code: compare your branch with main, review its diff, juggle worktrees and stacked pull requests](https://raw.githubusercontent.com/epavanello/treeline/main/docs/demo.gif)](https://youtu.be/tYY95Xhoqss)
+[![Treeline in VS Code: compare your branch with main, review its diff, juggle worktrees and stacked pull requests](https://raw.githubusercontent.com/epavanello/treeline/main/docs/demo.gif)](https://youtu.be/eXORu_KgFKw)
 
-▶ **[Watch the demo, with sound](https://youtu.be/tYY95Xhoqss)**
+▶ **[Watch the demo, with sound](https://youtu.be/eXORu_KgFKw)**
 
 ## 🌿 Your branch vs main
 
