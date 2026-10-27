@@ -120,7 +120,7 @@ branch with main, review diffs with working language features, juggle worktrees 
    (`resumeClaudeSession` in `actions.ts`): a desktop session opens with `claude://claude.ai/epitaxy/<local_id>`
    (the link the app's own sidebar uses; `claude://code/continue?session=` skips archived ones), any other
    runs `claude --resume <id>` in a terminal in its folder (Claude Code finds sessions by folder).
-8. **Details panel**: a legend like the cards (`RefCard`'s `LEGEND`/`SUB`; a worktree shows its very
+6. **Details panel**: a legend like the cards (`RefCard`'s `LEGEND`/`SUB`; a worktree shows its very
    card): subject and body, author avatar, copyable hash and folder, parents and compared commits as
    links (`app.reveal`). Files as a list, a tree, or **inline diff** (`ViewSettings.files`): `getPatch`
    (`Git.patch`: `git diff`, untracked files written as additions) parsed by `patch.ts`, one `DiffFile`
@@ -130,7 +130,7 @@ branch with main, review diffs with working language features, juggle worktrees 
    the installed extensions contribute (`codeColors.ts`, vscode-free; `theme.ts` passes
    `vscode.extensions.all`), since a webview can't ask the editor for either. A theme change posts
    `{ event: 'theme' }`. Both dividers drag and are remembered (`detailsSize`, `detailsSplit`).
-6. **Pull requests** (`pulls.ts`, vscode-free, unit-tested with a fake `gh`): one GraphQL query for the
+7. **Pull requests** (`pulls.ts`, vscode-free, unit-tested with a fake `gh`): one GraphQL query for the
    50 most recently updated PRs (state, review decision, latest review per reviewer, review requests,
    review threads resolved/unresolved, checks rollup), run by `gh api graphql` with gh's active
    account, then each other signed-in account (`gh auth status --json hosts`, `gh auth token --user`,
@@ -140,7 +140,7 @@ branch with main, review diffs with working language features, juggle worktrees 
    Matched to branches by head branch name (`pullsOf`), forks' PRs left out. A merged PR whose head is
    the branch's commit makes it merged (`isMerged`): squash merges, which git alone can't see.
    Shown in `RefCard` (`PullCard`), on chips (`PullBadge`) and in the branch menus (`pullItems`).
-7. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
+8. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
 
 Later ideas: GitHub avatars (see `AuthorAvatar`), commit search
 server-side (`--grep`), a WebviewPanelSerializer so the panel survives window reloads, settings
