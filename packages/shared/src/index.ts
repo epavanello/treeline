@@ -402,6 +402,8 @@ export interface ViewSettings {
   /** The details panel's share of the height, and its first column's share of its width (percent). */
   detailsSize: number;
   detailsSplit: number;
+  /** With a file's diff open next to the file list: the list's share of their width (percent). */
+  detailsFiles: number;
   /** Column widths in px; `graph: null` fits the graph's lanes. Description takes the rest. */
   widths: { graph: number | null } & Record<Column, number>;
 }
@@ -431,6 +433,7 @@ export const DEFAULT_VIEW: ViewSettings = {
   files: 'list',
   detailsSize: 40,
   detailsSplit: 40,
+  detailsFiles: 35,
   widths: { graph: null, date: 170, author: 140, commit: 76 }
 };
 
@@ -500,7 +503,7 @@ export interface HostApi {
     base: string
   ): Promise<{ above: string[]; stack: string[] }>;
   /** The unified diff between two revisions (see `DetailsPanel`'s range); `from` empty: what `to` changed. */
-  getPatch(repo: string, from: string, to: string): Promise<string>;
+  getPatch(repo: string, from: string, to: string, paths?: string[]): Promise<string>;
   /** The editor's color theme, to color code as the editor does; null if it can't be read. */
   getCodeTheme(): Promise<CodeTheme | null>;
   /** The TextMate grammars to color a file with, from the installed extensions. */

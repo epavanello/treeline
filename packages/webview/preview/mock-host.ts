@@ -137,13 +137,19 @@ const summaries = new Map<string, string>();
       }
       case 'getPatch': {
         // Recorded by the fixture script: commits by hash, the working tree as '*', worktrees by path
-        const [repo, , to] = args as string[];
+        const [repo, , to, paths] = args as [string, string, string, string[] | undefined];
         const key = to === UNCOMMITTED && repo !== fixture.repo ? repo : to;
-        return reply(
-          id,
-          (fixture as { patches?: Record<string, string> }).patches?.[key] ?? '',
-          200
-        );
+        const patch = (fixture as { patches?: Record<string, string> }).patches?.[key] ?? '';
+        // Some files only: their sections of the patch
+        const only = paths
+          ? patch
+              .split(/^(?=diff --git )/m)
+              .filter((s) =>
+                paths.some((p) => s.startsWith('diff --git ') && s.includes(` b/${p}\n`))
+              )
+              .join('')
+          : patch;
+        return reply(id, only, 200);
       }
       case 'getCodeTheme':
         return reply(id, (fixture as { theme?: unknown }).theme ?? null);

@@ -107,10 +107,20 @@
 
   /** The file list or diff: back to its top when it shows other changes. */
   let right = $state<HTMLElement>();
+  /** The list's or tree's file shown in the third column, as an inline diff. */
+  let shown = $state<FileChange | null>(null);
   $effect(() => {
     void [repo, range.from, range.to];
     if (right) right.scrollTop = 0;
   });
+  $effect(() => {
+    void [repo, range.from, range.to];
+    shown = null;
+  });
+  /** Still among the files (a refresh may have dropped it): as it is now. */
+  const shownFile = $derived(
+    app.view.files !== 'diff' && shown ? files.find((f) => f.path === shown!.path) : undefined
+  );
 
   /** A long commit message shows its first lines, the rest on request. */
   let expanded = $state(false);
@@ -213,7 +223,7 @@
     title="Show it in the graph"
     onclick={() => app.reveal(hash)}
   >
-    <span class="shrink-0 font-mono text-[11px] text-ring">{short(hash)}</span>
+    <span class="shrink-0 font-mono text-[11px] text-link">{short(hash)}</span>
     {#if subjectOf(hash)}<span class="truncate text-[12px]">{subjectOf(hash)}</span>{/if}
   </button>
 {/snippet}
@@ -425,7 +435,7 @@
               </p>
               {#if expanded || clamped}
                 <button
-                  class="mt-0.5 text-xs text-ring hover:underline"
+                  class="mt-0.5 text-xs text-link hover:text-link-hover hover:underline"
                   onclick={() => (expanded = !expanded)}
                 >
                   {expanded ? 'Show less' : 'Show all'}
@@ -510,89 +520,135 @@
     </Resizable.Pane>
     <Resizable.Handle />
     <Resizable.Pane minSize={25}>
-      <div class="h-full overflow-auto" bind:this={right}>
-        <ActionMenu>
-          {#snippet children(open)}
-            {#snippet fileRow(f: FileChange, depth: number, withDir: boolean)}
+      <ActionMenu>
+        {#snippet children(open)}
+          {#snippet fileRow(f: FileChange, depth: number, withDir: boolean)}
+            <li
+              class={cn(
+                'group flex items-center pr-1 hover:bg-accent has-data-menu-open:bg-accent',
+                shownFile?.path === f.path &&
+                  'bg-[var(--vscode-list-inactiveSelectionBackground,var(--accent))]'
+              )}
+            >
+              <button
+                class="flex min-w-0 flex-1 items-center gap-2 py-0.5 pr-1 text-left"
+                style="padding-left: {12 + depth * 14}px"
+                onclick={() => (shown = f)}
+                ondblclick={() => diff(f)}
+                oncontextmenu={(e) => open(e, fileMenu(f))}
+                title="{STATUS_LABEL[f.status]}: {f.status === 'R'
+                  ? `${f.oldPath} → ${f.path}`
+                  : f.path}"
+              >
+                <span class={cn('w-3 shrink-0 font-mono text-xs font-bold', STATUS_COLOR[f.status])}
+                  >{f.status}</span
+                >
+                <span class="truncate">
+                  {f.path.split('/').pop()}
+                  {#if withDir}
+                    <span class="text-xs text-muted-foreground"
+                      >{f.path.split('/').slice(0, -1).join('/')}</span
+                    >
+                  {/if}
+                </span>
+                <DiffStat
+                  class="ml-auto shrink-0"
+                  additions={f.additions}
+                  deletions={f.deletions}
+                />
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                class="size-5 shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                icon={FileDiff}
+                hint="Open its diff in the editor, on your real file when it matches: Go to Definition, errors and links work (or double-click the file)"
+                onclick={() => diff(f)}
+              />
+            </li>
+          {/snippet}
+          {#snippet folder(dir: Dir, depth: number)}
+            {#each dir.dirs as sub (sub.path)}
+              {@const expanded = !collapsed.has(sub.path)}
               <li>
                 <button
-                  class="flex w-full items-center gap-2 py-0.5 pr-3 text-left hover:bg-accent data-menu-open:bg-accent"
-                  style="padding-left: {12 + depth * 14}px"
-                  onclick={() => diff(f)}
-                  oncontextmenu={(e) => open(e, fileMenu(f))}
-                  title="{STATUS_LABEL[f.status]}: {f.status === 'R'
-                    ? `${f.oldPath} → ${f.path}`
-                    : f.path}"
+                  class="flex w-full items-center gap-1 py-0.5 pr-3 text-left text-muted-foreground hover:bg-accent"
+                  style="padding-left: {8 + depth * 14}px"
+                  title={sub.path}
+                  onclick={() => (expanded ? collapsed.add(sub.path) : collapsed.delete(sub.path))}
                 >
-                  <span
-                    class={cn('w-3 shrink-0 font-mono text-xs font-bold', STATUS_COLOR[f.status])}
-                    >{f.status}</span
-                  >
-                  <span class="truncate">
-                    {f.path.split('/').pop()}
-                    {#if withDir}
-                      <span class="text-xs text-muted-foreground"
-                        >{f.path.split('/').slice(0, -1).join('/')}</span
-                      >
-                    {/if}
-                  </span>
-                  <DiffStat
-                    class="ml-auto shrink-0"
-                    additions={f.additions}
-                    deletions={f.deletions}
+                  <ChevronRight
+                    class={cn('size-3.5 shrink-0 transition-transform', expanded && 'rotate-90')}
                   />
+                  <Folder class="size-3.5 shrink-0" />
+                  <span class="truncate">{sub.name}</span>
                 </button>
               </li>
-            {/snippet}
-            {#snippet folder(dir: Dir, depth: number)}
-              {#each dir.dirs as sub (sub.path)}
-                {@const expanded = !collapsed.has(sub.path)}
-                <li>
-                  <button
-                    class="flex w-full items-center gap-1 py-0.5 pr-3 text-left text-muted-foreground hover:bg-accent"
-                    style="padding-left: {8 + depth * 14}px"
-                    title={sub.path}
-                    onclick={() =>
-                      expanded ? collapsed.add(sub.path) : collapsed.delete(sub.path)}
-                  >
-                    <ChevronRight
-                      class={cn('size-3.5 shrink-0 transition-transform', expanded && 'rotate-90')}
-                    />
-                    <Folder class="size-3.5 shrink-0" />
-                    <span class="truncate">{sub.name}</span>
-                  </button>
-                </li>
-                {#if expanded}
-                  {@render folder(sub, depth + 1)}
-                {/if}
-              {/each}
-              {#each dir.files as f (f.path)}
-                {@render fileRow(f, depth, false)}
-              {/each}
-            {/snippet}
-            <!-- A pull request's range is known once its head is here (it may be fetched first) -->
-            {#if app.view.files === 'diff' && repo && (!pull || pull.files)}
-              <DiffView
-                {repo}
-                {...range}
-                {files}
-                onopen={diff}
-                menu={(e, f) => open(e, fileMenu(f))}
-              />
-            {:else}
-              <ul class="py-1">
-                {#if app.view.files === 'tree'}
-                  {@render folder(tree, 0)}
-                {:else}
-                  {#each files as f (f.path)}
-                    {@render fileRow(f, 0, true)}
-                  {/each}
-                {/if}
-              </ul>
-            {/if}
+              {#if expanded}
+                {@render folder(sub, depth + 1)}
+              {/if}
+            {/each}
+            {#each dir.files as f (f.path)}
+              {@render fileRow(f, depth, false)}
+            {/each}
           {/snippet}
-        </ActionMenu>
-      </div>
+          {#snippet list()}
+            <div class="h-full overflow-auto" bind:this={right}>
+              <!-- A pull request's range is known once its head is here (it may be fetched first) -->
+              {#if app.view.files === 'diff' && repo && (!pull || pull.files)}
+                <DiffView
+                  {repo}
+                  {...range}
+                  {files}
+                  onopen={diff}
+                  menu={(e, f) => open(e, fileMenu(f))}
+                />
+              {:else}
+                <ul class="py-1">
+                  {#if app.view.files === 'tree'}
+                    {@render folder(tree, 0)}
+                  {:else}
+                    {#each files as f (f.path)}
+                      {@render fileRow(f, 0, true)}
+                    {/each}
+                  {/if}
+                </ul>
+              {/if}
+            </div>
+          {/snippet}
+          {#if shownFile && repo}
+            <!-- The clicked file's diff in a third column, next to the list -->
+            <Resizable.PaneGroup
+              direction="horizontal"
+              onLayoutChange={(l) => {
+                if (l.length === 2) app.setView({ detailsFiles: Math.round(l[0]) });
+              }}
+            >
+              <Resizable.Pane defaultSize={app.view.detailsFiles} minSize={15}>
+                {@render list()}
+              </Resizable.Pane>
+              <Resizable.Handle />
+              <Resizable.Pane minSize={25}>
+                <div class="h-full overflow-auto">
+                  {#key shownFile.path}
+                    <DiffView
+                      {repo}
+                      {...range}
+                      files={[shownFile]}
+                      paths={[shownFile.path, shownFile.oldPath]}
+                      onopen={diff}
+                      menu={(e, f) => open(e, fileMenu(f))}
+                      onclose={() => (shown = null)}
+                    />
+                  {/key}
+                </div>
+              </Resizable.Pane>
+            </Resizable.PaneGroup>
+          {:else}
+            {@render list()}
+          {/if}
+        {/snippet}
+      </ActionMenu>
     </Resizable.Pane>
   </Resizable.PaneGroup>
 </div>

@@ -20,8 +20,9 @@ Commits that landed through "Rebase and merge" or a cherry-pick count as merged,
 ![The details panel of a commit](https://raw.githubusercontent.com/epavanello/treeline/main/docs/features/details.gif)
 
 **Inline diffs, in your editor's colors.** Every change on one page, like a pull request, highlighted
-with your own theme and grammars. **Diff** shows the whole branch since the fork, uncommitted work included,
-and diffs open on your real files, so Go to Definition just works.
+with your own theme and grammars, or one file at a time next to the file list. **Diff** shows the whole
+branch since the fork, uncommitted work included, and diffs open on your real files, so Go to Definition
+just works.
 
 ![Inline diff colored by the editor's theme](https://raw.githubusercontent.com/epavanello/treeline/main/docs/features/inline-diff.gif)
 

@@ -494,3 +494,17 @@ describe("other worktrees' uncommitted changes", () => {
     rmSync(wt, { recursive: true, force: true });
   });
 });
+
+describe('patch', () => {
+  it('limits a diff to some files, new ones included', async () => {
+    const dirty = await git.patch(dir, 'HEAD', UNCOMMITTED, undefined, ['b.txt']);
+    expect(dirty).toContain('b/b.txt');
+    expect(dirty).not.toContain('new.txt');
+    const added = await git.patch(dir, 'HEAD', UNCOMMITTED, undefined, ['new.txt']);
+    expect(added).toContain('+untracked');
+    expect(added).not.toContain('b/b.txt');
+    // A commit's changes, one file of them
+    const one = await git.patch(dir, '', 'feature', undefined, ['c.txt']);
+    expect(one).toContain('b/c.txt');
+  });
+});

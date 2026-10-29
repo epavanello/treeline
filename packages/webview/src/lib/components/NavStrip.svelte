@@ -58,7 +58,7 @@
     {#snippet title()}
       <!-- One inline run: the smaller count sits on the label's baseline -->
       <span
-        >{label}<span class="ml-1 text-[10px] tabular-nums opacity-70"
+        >{label}<span class="ml-1 text-[10px] tabular-nums"
           >{shown === count ? count : `${shown}/${count}`}</span
         ></span
       >
@@ -78,7 +78,7 @@
               {#if filter.loading && filter.active}
                 <LoaderCircle class="size-3 animate-spin" />
               {:else}
-                <ListFilter class={cn('size-3', filter.active ? 'text-ring' : 'opacity-50')} />
+                <ListFilter class={cn('size-3', filter.active ? 'text-link' : 'opacity-50')} />
               {/if}
             </Button>
           {/snippet}
@@ -97,7 +97,7 @@
       {@render children()}
     {:else}
       {#if typeof empty === 'string'}
-        <span class="text-muted-foreground opacity-70">{empty}</span>
+        <span class="text-muted-foreground">{empty}</span>
       {:else}
         {@render empty()}
       {/if}

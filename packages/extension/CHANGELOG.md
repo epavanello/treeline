@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- Click a file in the list or the tree of changed files: its diff opens in a third column next to the
+  list, colored like the editor. Drag the divider to resize it (remembered); ✕ closes it.
+  Double-click the file, or its icon on hover, to open the diff in the editor instead
+- Easier to read in light themes: hashes and links use the theme's link color, secondary text is no
+  longer dimmed twice, and line numbers in diffs use the editor's line number color
+
 ## 0.8.0
 
 - A Pull Requests row under the branches: the repository's pull requests on GitHub with their state,

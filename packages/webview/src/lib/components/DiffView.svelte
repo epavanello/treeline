@@ -15,16 +15,21 @@
     from,
     to,
     files,
+    paths,
     onopen,
-    menu
+    menu,
+    onclose
   }: {
     repo: string;
     from: string;
     to: string;
     /** The file list the panel shows: their status and line counts. */
     files: FileChange[];
+    /** Only these files' changes (one file, picked from the list): shown unfolded. */
+    paths?: string[];
     onopen: (f: FileChange) => void;
     menu: (e: MouseEvent, f: FileChange) => void;
+    onclose?: () => void;
   } = $props();
 
   let patch = $state.raw<PatchFile[] | null>(null);
@@ -37,7 +42,7 @@
     void files;
     let stale = false;
     error = null;
-    host.getPatch(repo, from, to).then(
+    host.getPatch(repo, from, to, paths && [...new Set(paths)]).then(
       (text) => !stale && (patch = parsePatch(text)),
       (e: Error) => !stale && (error = e.message)
     );
@@ -73,10 +78,11 @@
     <DiffFile
       file={f}
       {change}
-      open={big(f) === flipped.has(f.path)}
+      open={paths ? !flipped.has(f.path) : big(f) === flipped.has(f.path)}
       ontoggle={() => (flipped.has(f.path) ? flipped.delete(f.path) : flipped.add(f.path))}
       onopen={() => onopen(change)}
       oncontextmenu={(e) => menu(e, change)}
+      {onclose}
     />
   {/each}
 {/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { FileChange } from '@treeline/shared';
-  import { ChevronRight, FileDiff } from '@lucide/svelte';
+  import { ChevronRight, FileDiff, X } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import { tokenize, type ThemedToken } from '$lib/highlight';
   import type { PatchFile } from '$lib/patch';
@@ -19,7 +19,8 @@
     open,
     ontoggle,
     onopen,
-    oncontextmenu
+    oncontextmenu,
+    onclose
   }: {
     file: PatchFile;
     change: FileChange;
@@ -27,6 +28,8 @@
     ontoggle: () => void;
     onopen: () => void;
     oncontextmenu: (e: MouseEvent) => void;
+    /** Shown alone, next to the file list: a button to close it. */
+    onclose?: () => void;
   } = $props();
 
   /** Each hunk's lines' tokens, once colored (null: plain text). */
@@ -133,6 +136,15 @@
       hint="Open this diff in the editor, side by side: when a side matches your working tree it's the real file, so Go to Definition, errors and links work there."
       onclick={(e: MouseEvent) => (e.stopPropagation(), onopen())}
     />
+    {#if onclose}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        icon={X}
+        hint="Close this file's diff"
+        onclick={(e: MouseEvent) => (e.stopPropagation(), onclose())}
+      />
+    {/if}
   </header>
 
   {#if open}
@@ -165,14 +177,14 @@
               <div class={cn('flex', LINE[l.kind])}>
                 <span
                   class={cn(
-                    'shrink-0 pr-1 text-right text-muted-foreground/70 select-none',
+                    'shrink-0 pr-1 text-right text-[var(--vscode-editorLineNumber-foreground)] select-none',
                     GUTTER[l.kind]
                   )}
                   style="width: {digits + 1}ch">{l.old ?? ''}</span
                 >
                 <span
                   class={cn(
-                    'shrink-0 pr-1 text-right text-muted-foreground/70 select-none',
+                    'shrink-0 pr-1 text-right text-[var(--vscode-editorLineNumber-foreground)] select-none',
                     GUTTER[l.kind]
                   )}
                   style="width: {digits + 1}ch">{l.new ?? ''}</span

@@ -108,7 +108,10 @@
         </ul>
       {/if}
       {#if sessions.length > FEW}
-        <button class="mt-1 text-[11px] text-ring hover:underline" onclick={() => (all = !all)}>
+        <button
+          class="mt-1 text-[11px] text-link hover:text-link-hover hover:underline"
+          onclick={() => (all = !all)}
+        >
           {all ? 'Show fewer' : `Show all ${sessions.length}`}
         </button>
       {/if}

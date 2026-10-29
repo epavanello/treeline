@@ -256,7 +256,10 @@
     <dt></dt>
     <dd class="text-[11px] text-muted-foreground">
       Its pull requests:
-      <button class="text-ring hover:underline" onclick={() => app.connectGitHub()}>
+      <button
+        class="text-link hover:text-link-hover hover:underline"
+        onclick={() => app.connectGitHub()}
+      >
         connect GitHub
       </button>
       (no gh account here can read {app.pulls.repo})

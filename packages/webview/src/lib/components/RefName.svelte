@@ -7,4 +7,4 @@
   const l = $derived(app.refLabel(ref));
 </script>
 
-{#if l.remote}<span class="mr-0.5 text-[10px] opacity-60">{l.remote}</span>{/if}{l.name}
+{#if l.remote}<span class="mr-0.5 text-[10px] text-muted-foreground">{l.remote}</span>{/if}{l.name}

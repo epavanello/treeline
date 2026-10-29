@@ -838,18 +838,26 @@ export class Git {
   /**
    * The unified diff between two revisions, cut to `max` characters. `from` empty: the changes `to`
    * made (a merge's against its first parent). `to` UNCOMMITTED: the working tree, new files included.
+   * `paths`: only these files (a renamed one by both its names).
    */
-  async patch(repo: string, from: string, to: string, max = 2_000_000): Promise<string> {
+  async patch(
+    repo: string,
+    from: string,
+    to: string,
+    max = 2_000_000,
+    paths: string[] = []
+  ): Promise<string> {
     const flags = ['--no-ext-diff', '--no-color', '--find-renames'];
+    const only = paths.length ? ['--', ...paths] : [];
     if (to !== UNCOMMITTED) {
       const args = from
-        ? ['diff', ...flags, from, to]
-        : ['show', '--format=', ...flags, '--diff-merges=first-parent', to];
+        ? ['diff', ...flags, from, to, ...only]
+        : ['show', '--format=', ...flags, '--diff-merges=first-parent', to, ...only];
       return (await this.exec(repo, args)).slice(0, max);
     }
     const [tracked, untracked] = await Promise.all([
-      this.try(this.exec(repo, ['diff', ...flags, from]), ''),
-      this.exec(repo, ['ls-files', '--others', '--exclude-standard']).then(lines)
+      this.try(this.exec(repo, ['diff', ...flags, from, ...only]), ''),
+      this.exec(repo, ['ls-files', '--others', '--exclude-standard', ...only]).then(lines)
     ]);
     let out = tracked;
     for (const file of untracked) {

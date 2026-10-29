@@ -246,6 +246,10 @@ packages/
   `app.working`: the list dims under a note. Background reloads stay quiet.
 - **Theming**: shadcn tokens map to `--vscode-*` variables in `src/app.css`; no palettes of our own.
   `dark:` = `.vscode-dark` / `.vscode-high-contrast` on `<body>`.
+  Contrast: text you click is `text-link` (`textLink.foreground`), secondary text is
+  `text-muted-foreground` (`descriptionForeground`, already dimmed by the theme): never add `opacity-*`
+  or `/NN` alpha to text, and never color text with `ring` (`focusBorder` is meant for outlines and
+  is pale in many light themes). Opacity is for icons and dimmed states (archived, hidden, not found).
 - **Async buttons**: `Button` (copied from devmotion) shows a spinner automatically when `onclick` returns a
   Promise, in place of its icon (or over its label, keeping its size). Prefer that to manual loading state.
 - **Busy state**: every action runs through `run()` in `extension.ts`, which posts `{ event: 'busy', key }`

@@ -128,7 +128,9 @@ export class GraphPanel {
         };
       },
       branchStack: (repo, branch, base) => git.stack(repo, branch, base),
-      getPatch: (repo, from, to) => timed('patch', git.patch(repo, from, to)),
+      // Arguments come as JSON: a `paths` left out arrives as null
+      getPatch: (repo, from, to, paths) =>
+        timed('patch', git.patch(repo, from, to, undefined, paths ?? [])),
       getCodeTheme: () => activeTheme(),
       getGrammars: (file) => grammarsFor(file),
       setView: async (view) => void (await ctx.globalState.update('view', view)),
