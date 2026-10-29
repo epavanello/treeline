@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { actionTarget, type Action } from '@treeline/shared';
+import { actionTarget, type Action, type Settings } from '@treeline/shared';
 import { runAction } from './actions';
 import { BranchDetailsCache } from './branchDetails';
-import { Summaries } from './claude';
+import { hasClaude, Summaries } from './claude';
 import { ClaudeSessions } from './sessions';
 import { fillCommitMessage } from './commitMessage';
 import { RevisionProvider, SCHEME } from './diff';
@@ -62,6 +62,24 @@ export async function activate(ctx: vscode.ExtensionContext) {
       refresh();
     }
   };
+  // Checked once: installing Claude Code takes a window reload to show its features
+  const claudeFound = hasClaude();
+  const settings = async (): Promise<Settings> => {
+    if (!vscode.workspace.getConfiguration('treeline').get('claude.enabled', true))
+      return { claude: false, commitMessage: false };
+    const claude = await claudeFound;
+    return {
+      claude,
+      commitMessage: claude || (await vscode.lm.selectChatModels()).length > 0
+    };
+  };
+  /** The ✨ button and command follow `commitMessage`; the webview asks `settings` again. */
+  const settingsChanged = async () => {
+    const s = await settings();
+    await vscode.commands.executeCommand('setContext', 'treeline.commitMessage', s.commitMessage);
+    GraphPanel.post({ event: 'settings' });
+  };
+  void settingsChanged();
   const services = {
     git,
     repos,
@@ -71,7 +89,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
     claudeSessions: new ClaudeSessions(),
     log,
     run,
-    commitMessage: (repo: string) => fillCommitMessage(git, repo, builtin?.repositories ?? [])
+    commitMessage: (repo: string) => fillCommitMessage(git, repo, builtin?.repositories ?? []),
+    settings
   };
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left);
@@ -87,11 +106,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, new RevisionProvider(git)),
     // Diffs in the panel are colored with the theme's colors
     vscode.window.onDidChangeActiveColorTheme(() => GraphPanel.post({ event: 'theme' })),
-    vscode.workspace.onDidChangeConfiguration(
-      (e) =>
-        e.affectsConfiguration('editor.tokenColorCustomizations') &&
-        GraphPanel.post({ event: 'theme' })
-    ),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('editor.tokenColorCustomizations'))
+        GraphPanel.post({ event: 'theme' });
+      if (e.affectsConfiguration('treeline.claude')) void settingsChanged();
+    }),
+    vscode.lm.onDidChangeChatModels(() => void settingsChanged()),
     vscode.commands.registerCommand('treeline.view', () => GraphPanel.show(ctx, services)),
     vscode.commands.registerCommand('treeline.fetch', async () => {
       for (const repo of await repos.list()) {

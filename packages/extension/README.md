@@ -87,7 +87,8 @@ something would be lost, and every button explains itself on hover.
 Run **Treeline: View Git Graph**, click **Git Graph** in the status bar, or use the button in the Source
 Control title bar. Treeline uses the editor's built-in Git extension to find repositories and to refresh
 when they change. The Claude features need [Claude Code](https://claude.com/claude-code) (`claude` on your
-PATH); commit messages fall back to any model your editor provides.
+PATH); commit messages fall back to any model your editor provides. Without it they stay hidden; to
+hide them anyway, turn off **Treeline › Claude: Enabled** (`treeline.claude.enabled`).
 
 ## Feedback
 

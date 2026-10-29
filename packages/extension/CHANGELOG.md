@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0
+
+- Without Claude Code installed, nothing about Claude shows: no Summarize buttons, and the ✨ commit
+  message button only when the editor offers another language model
+- A setting to hide everything about Claude anyway: turn off **Treeline › Claude: Enabled**
+  (`treeline.claude.enabled`)
+
 ## 0.10.0
 
 - The rows under the toolbar line up: every row's name, count, filter and + sit in the same columns,

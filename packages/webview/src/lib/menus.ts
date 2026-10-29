@@ -311,15 +311,17 @@ export function menuItems(target: MenuTarget, pulls = true): MenuItem[] {
   const { commit } = target;
   if (commit.hash === UNCOMMITTED) {
     return [
-      {
-        label: 'Generate Commit Message with Claude',
-        icon: Sparkles,
-        run: () => app.repo && host.generateCommitMessage(app.repo),
-        hint: {
-          body: 'Writes a message for the staged changes (or all of them if nothing is staged) with your local Claude Code CLI, in the style of your recent commits, and puts it in the Source Control box. Review it, then commit with ⌘/Ctrl+Enter.',
-          command: 'claude -p --model haiku < diff'
+      ...when(app.commitMessage, [
+        {
+          label: 'Generate Commit Message with Claude',
+          icon: Sparkles,
+          run: () => app.repo && host.generateCommitMessage(app.repo),
+          hint: {
+            body: 'Writes a message for the staged changes (or all of them if nothing is staged) with your local Claude Code CLI, in the style of your recent commits, and puts it in the Source Control box. Review it, then commit with ⌘/Ctrl+Enter.',
+            command: 'claude -p --model haiku < diff'
+          }
         }
-      },
+      ]),
       {
         label: 'Open Source Control',
         icon: GitCommitHorizontal,

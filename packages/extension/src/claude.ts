@@ -45,6 +45,14 @@ export function claude(prompt: string, input: string, signal?: AbortSignal) {
   });
 }
 
+/** Whether the CLI runs at all (on the PATH the editor gave us, the one `claude()` uses). */
+export const hasClaude = () =>
+  new Promise<boolean>((resolve) =>
+    spawn('claude', ['--version'], { cwd: tmpdir() })
+      .on('error', () => resolve(false))
+      .on('close', (code) => resolve(code === 0))
+  );
+
 /** A reply without the code fence models sometimes wrap it in. */
 export const clean = (s: string) =>
   s

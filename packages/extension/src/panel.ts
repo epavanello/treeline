@@ -1,7 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { HostApi, HostEvent, RpcRequest, RpcResponse } from '@treeline/shared';
-import { DEFAULT_VIEW, type Action, type ViewSettings } from '@treeline/shared';
+import { DEFAULT_VIEW, type Action, type Settings, type ViewSettings } from '@treeline/shared';
 import { openFolder, resumeClaudeSession } from './actions';
 import { openDiff, revisionUri } from './diff';
 import { activeTheme, grammarsFor } from './theme';
@@ -23,6 +23,7 @@ export interface Services {
   /** Runs an action, showing it as busy, then reloads the graph. */
   run: (repo: string, action: Action) => Promise<void>;
   commitMessage: (repo: string) => Promise<void>;
+  settings: () => Promise<Settings>;
 }
 
 /** The single Git Graph webview panel. */
@@ -63,7 +64,8 @@ export class GraphPanel {
       claudeSessions,
       log,
       run,
-      commitMessage
+      commitMessage,
+      settings
     }: Services
   ) {
     panel.iconPath = vscode.Uri.joinPath(ctx.extensionUri, 'resources', 'icon.svg');
@@ -134,6 +136,7 @@ export class GraphPanel {
       getCodeTheme: () => activeTheme(),
       getGrammars: (file) => grammarsFor(file),
       setView: async (view) => void (await ctx.globalState.update('view', view)),
+      getSettings: settings,
       getRepoView: async (repo) => {
         const key = await git.commonDir(repo);
         return (

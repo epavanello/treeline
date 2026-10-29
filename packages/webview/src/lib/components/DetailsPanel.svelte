@@ -349,8 +349,10 @@
             <RefCard r={app.worktreeSummary(wt.worktree)} worktree={wt.worktree} files={false} />
           </div>
           <dl class={LEGEND}>
-            <dt><Sparkles class="size-3.5" /></dt>
-            <dd><ChangeSummary repo={wt.worktree.path} rev={null} version={wt.files} /></dd>
+            {#if app.claude}
+              <dt><Sparkles class="size-3.5" /></dt>
+              <dd><ChangeSummary repo={wt.worktree.path} rev={null} version={wt.files} /></dd>
+            {/if}
             <ClaudeSessions branches={[wt.worktree.branch]} worktree={wt.worktree} />
             <dt><GitCommitHorizontal class="size-3.5" /></dt>
             <dd>
@@ -402,8 +404,10 @@
               </span>
             </dd>
             {#if app.repo}
-              <dt><Sparkles class="size-3.5" /></dt>
-              <dd><ChangeSummary repo={app.repo} rev={null} version={d?.files} /></dd>
+              {#if app.claude}
+                <dt><Sparkles class="size-3.5" /></dt>
+                <dd><ChangeSummary repo={app.repo} rev={null} version={d?.files} /></dd>
+              {/if}
               <dt><FolderGit2 class="size-3.5" /></dt>
               <dd><CopyField value={app.repo} what="folder path" /></dd>
             {/if}
@@ -496,7 +500,7 @@
                 <span class={SUB}>a merge: the files are what it brought into the first one</span>
               {/if}
             </dd>
-            {#if app.repo}
+            {#if app.repo && app.claude}
               <dt><Sparkles class="size-3.5" /></dt>
               <dd><ChangeSummary repo={app.repo} rev={commit.hash} /></dd>
             {/if}

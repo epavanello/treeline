@@ -105,7 +105,8 @@ to [GitHub Releases](https://github.com/epavanello/treeline/releases/latest).
 
 Then run **Treeline: View Git Graph**, or click **Git Graph** in the status bar. The Claude features need
 [Claude Code](https://claude.com/claude-code) (`claude` on your PATH); commit messages fall back to any
-model your editor provides.
+model your editor provides. Without it they stay hidden; to hide them anyway, turn off
+**Treeline › Claude: Enabled** (`treeline.claude.enabled`).
 
 ## Develop
 

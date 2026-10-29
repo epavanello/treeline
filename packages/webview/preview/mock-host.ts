@@ -224,6 +224,9 @@ const summaries = new Map<string, string>();
       case 'setView':
         view = args[0] as typeof view;
         return reply(id, undefined);
+      case 'getSettings':
+        const on = new URLSearchParams(location.search).get('claude') !== 'off';
+        return reply(id, { claude: on, commitMessage: on });
       case 'run': {
         // Pretend git takes a while, so the busy spinners can be seen
         const action = args[1] as Action;

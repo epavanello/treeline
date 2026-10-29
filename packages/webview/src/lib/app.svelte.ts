@@ -135,6 +135,9 @@ class App {
   pulls = $state<PullRequests | null>(null);
   /** Claude Code sessions that ran in the repository's folders, most recent first (see sessions.ts). */
   claudeSessions = $state.raw<ClaudeSession[]>([]);
+  /** What works here: Claude's summaries and sessions, commit messages (`Settings`). */
+  claude = $state(false);
+  commitMessage = $state(false);
   /** Every branch once, local and remote copies together (see filters.ts). */
   rows = $derived(this.data ? branchRows(this.data) : []);
   /** Each branch's row by name, local or remote: what it is paired with. */
@@ -445,6 +448,7 @@ class App {
 
   /** Read from Claude Code's files after every load: cheap, the host reads only what changed. */
   async loadClaudeSessions(data: GraphData) {
+    if (!this.claude) return void (this.claudeSessions = []);
     const repo = this.repo;
     const folders = data.worktrees.filter((w) => !w.prunable).map((w) => w.path);
     const sessions = await host.getClaudeSessions(folders).catch(() => []);
@@ -541,6 +545,7 @@ class App {
     // Older saved state had a boolean here
     this.focus = Array.isArray(saved.focus) ? saved.focus : [];
     void host.getView().then((v) => (this.view = v));
+    await this.loadSettings();
     // Pull requests change on GitHub, not on disk: ask again now and then while the graph is seen
     setInterval(() => document.visibilityState === 'visible' && void this.loadPulls(), 60_000);
     await this.loadRepos(saved.repo);
@@ -553,8 +558,15 @@ class App {
       else if (e.event === 'theme') {
         resetHighlighter();
         this.themeVersion++;
-      } else void this.loadRepos(this.repo ?? undefined);
+      } else if (e.event === 'settings')
+        void this.loadSettings().then(() => this.data && this.loadClaudeSessions(this.data));
+      else void this.loadRepos(this.repo ?? undefined);
     });
+  }
+
+  async loadSettings() {
+    const s = await host.getSettings().catch(() => null);
+    if (s) ({ claude: this.claude, commitMessage: this.commitMessage } = s);
   }
 
   async loadRepos(prefer?: string) {

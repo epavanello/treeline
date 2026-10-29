@@ -510,6 +510,18 @@ export interface HostApi {
   getGrammars(file: string): Promise<Grammars | null>;
   getView(): Promise<ViewSettings>;
   setView(view: ViewSettings): Promise<void>;
+  getSettings(): Promise<Settings>;
+}
+
+/**
+ * What the webview shows, from the extension's settings and what this machine has. Nothing about
+ * Claude when `treeline.claude.enabled` is off.
+ */
+export interface Settings {
+  /** Summaries and sessions: the setting is on and the `claude` CLI runs. */
+  claude: boolean;
+  /** Commit messages: the setting is on and the CLI runs, or the editor offers a language model. */
+  commitMessage: boolean;
 }
 
 export type RpcRequest = { id: number; method: keyof HostApi; args: unknown[] };
@@ -520,6 +532,8 @@ export type HostEvent =
   | { event: 'repos' }
   /** The color theme changed: code colors are due again. */
   | { event: 'theme' }
+  /** `getSettings` may have changed: the setting, or the editor's language models. */
+  | { event: 'settings' }
   /** An action's git commands started (after its prompts) or finished; `key` is its `actionTarget`. */
   | { event: 'busy'; key: string; busy: boolean };
 

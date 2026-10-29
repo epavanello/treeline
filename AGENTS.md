@@ -105,6 +105,10 @@ branch with main, review diffs with working language features, juggle worktrees 
    `--setting-sources ""`, `--no-session-persistence`, run in the temp dir, so no CLAUDE.md, hooks or tools
    (`--bare` would ignore a subscription's sign-in). Summaries are kept in `workspaceState`: a commit's by
    hash, uncommitted changes by their diff's sha1 (`summarize(…, cachedOnly)` shows them again).
+   **What shows** (`Settings`, `settings()` in `extension.ts` → `app.claude` / `app.commitMessage`):
+   summaries and sessions need the CLI (`hasClaude()`, checked once at activation), commit messages
+   the CLI or a `vscode.lm` model (context key `treeline.commitMessage` for the ✨ button);
+   `treeline.claude.enabled` off hides all of it. A `settings` event when either changes.
    **Claude sessions** (`sessions.ts`, vscode-free): which Claude Code sessions ran in the repository's
    folders, from Claude Code's transcripts (`~/.claude/projects/<folder, non-alphanumerics as ->/<id>.jsonl`:
    `cwd`, `gitBranch`, `timestamp`, `custom-title`; only their start and last 256 KB are read, again only
