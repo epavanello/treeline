@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+
+- The rows under the toolbar line up: every row's name, count, filter and + sit in the same columns,
+  and a long name is cut short instead of pushing its buttons out of line
+- - on the Pull Requests row: GitHub's page for a new pull request of the branch you're on, into the
+    compare base (pushing the branch first when GitHub doesn't have it as it is here). When the branch
+    already has an open pull request, it shows that one instead
+
 ## 0.9.0
 
 - Click a file in the list or the tree of changed files: its diff opens in a third column next to the

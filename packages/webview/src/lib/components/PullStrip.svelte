@@ -1,6 +1,13 @@
 <script lang="ts">
   import { since } from '@treeline/shared';
-  import { CircleCheck, CircleDot, CircleX, GitPullRequest, MessageSquare } from '@lucide/svelte';
+  import {
+    CircleCheck,
+    CircleDot,
+    CircleX,
+    GitPullRequest,
+    MessageSquare,
+    Plus
+  } from '@lucide/svelte';
   import { app } from '$lib/app.svelte';
   import {
     currentPull,
@@ -214,6 +221,31 @@
             {/snippet}
           </Tip>
         {/each}
+        {#snippet action()}
+          {@const n = app.newPullFor}
+          {#if n}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              icon={Plus}
+              loading={app.isRunning(n.branch)}
+              hint={n.existing
+                ? {
+                    title: `${n.branch} has #${n.existing.number}`,
+                    body: 'Shows it, its head in the graph and its changes in the details panel.'
+                  }
+                : {
+                    title: 'New pull request',
+                    body: `Opens GitHub's page for a pull request of ${n.branch} into ${n.into}, where you write its title and description.`,
+                    note: n.push
+                      ? `Pushes ${n.branch} first: GitHub doesn't have it as it is here.`
+                      : undefined,
+                    command: n.push ? `git push --set-upstream <remote> ${n.branch}` : undefined
+                  }}
+              onclick={() => app.newPull()}
+            />
+          {/if}
+        {/snippet}
       </NavStrip>
     {/snippet}
   </ActionMenu>

@@ -23,10 +23,12 @@ import {
 } from '@treeline/shared';
 import {
   branchRows,
+  currentPull,
   primary,
   DEFAULT_BRANCH_FILTER,
   DEFAULT_PULL_FILTER,
   DEFAULT_WORKTREE_FILTER,
+  isBase,
   type BranchFilter,
   type BranchRow,
   type Context,
@@ -375,6 +377,47 @@ class App {
     await this.reveal(pr.headOid, true);
     if (this.selected?.hash !== pr.headOid) this.selected = null;
     await this.openPull(pr);
+  }
+
+  /**
+   * The checked-out branch's open pull request, or how to open one: from it into the compare base.
+   * Null with nothing to open a pull request from (a detached HEAD, the base itself).
+   */
+  newPullFor = $derived.by(() => {
+    const [d, p] = [this.data, this.pulls];
+    const branch = d?.currentBranch;
+    const head = d?.heads.find((h) => h.ref.name === branch);
+    if (!d?.compare || p?.status !== 'ok' || !head || isBase(head, d.compare.base)) return null;
+    const open = p.prs.filter((pr) => pr.state === 'open' || pr.state === 'draft');
+    const existing = currentPull(open, this.rows, branch!);
+    const up = head.ref.upstream;
+    const into = d.compare.base.replace(new RegExp(`^(${d.remotes.join('|')})/`), '');
+    return {
+      branch: branch!,
+      into,
+      existing,
+      /** Not on GitHub as it is here: pushed first. */
+      push: !up || up.gone || up.ahead > 0
+    };
+  });
+
+  /** Opens GitHub's page for a new pull request of the checked-out branch, pushing it first if needed. */
+  async newPull() {
+    const n = this.newPullFor;
+    const pulls = this.pulls;
+    if (!n || pulls?.status !== 'ok') return;
+    if (n.existing) return this.showPull(n.existing);
+    if (n.push) {
+      await this.run({ type: 'pushBranch', name: n.branch });
+      await this.refresh();
+    }
+    const up = this.data?.heads.find((h) => h.ref.name === n.branch)?.ref.upstream;
+    // Not pushed after all (cancelled, or it failed): nothing to compare on GitHub yet
+    if (!up || up.gone) return;
+    const head = up.name.slice(up.name.indexOf('/') + 1);
+    const site = pulls.prs[0] ? new URL(pulls.prs[0].url).origin : 'https://github.com';
+    const path = (s: string) => s.split('/').map(encodeURIComponent).join('/');
+    await host.openUrl(`${site}/${pulls.repo}/compare/${path(n.into)}...${path(head)}?expand=1`);
   }
 
   /** A pull request's changes in the details panel (its head fetched first when it isn't here). */

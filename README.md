@@ -63,7 +63,7 @@ Every branch shows its owner.
 
 **A row of pull requests.** Filter it to yours, those waiting for your review, drafts, merged or closed
 ones, those whose branch you have, or those waiting on their author; the one of the branch you're on
-comes first. **Review a pull request in the details panel**, like a commit: its files as a list, a tree
+comes first, and its **+** opens a new one. **Review a pull request in the details panel**, like a commit: its files as a list, a tree
 or inline diffs, with its reviews, checks and fork point. Its branch doesn't have to be on your machine:
 Treeline fetches what GitHub has, without making a branch.
 
