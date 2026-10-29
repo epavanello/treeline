@@ -11,6 +11,7 @@ import {
   type FileChange,
   type GraphData,
   type GraphQuery,
+  type PullRequest,
   type PullRequests,
   type Ref,
   type RefSummary,
@@ -24,10 +25,12 @@ import {
   branchRows,
   primary,
   DEFAULT_BRANCH_FILTER,
+  DEFAULT_PULL_FILTER,
   DEFAULT_WORKTREE_FILTER,
   type BranchFilter,
   type BranchRow,
   type Context,
+  type PullFilter,
   type WorktreeFilter
 } from './filters';
 import { layout } from './graph';
@@ -59,6 +62,7 @@ interface RepoView {
   base: string | null;
   branchFilter: BranchFilter;
   worktreeFilter: WorktreeFilter;
+  pullFilter: PullFilter;
 }
 
 /** All webview state in one place. Components read it directly. */
@@ -97,6 +101,16 @@ class App {
   worktreePanel = $state<{ worktree: Worktree; files: FileChange[] } | null>(null);
   /** Everything that changed since HEAD forked from the base, working tree included. */
   branchDiff = $state<{ base: string; mergeBase: string; files: FileChange[] } | null>(null);
+  /**
+   * A pull request's changes, as GitHub shows them: from where its head forked from its base
+   * (`from`) to its head (`to`). `files` null while they load.
+   */
+  pullPanel = $state<{
+    pr: PullRequest;
+    from: string;
+    to: string;
+    files: FileChange[] | null;
+  } | null>(null);
 
   find = $state('');
   /** Which navigation rows are shown (worktrees, branches, tags). */
@@ -114,6 +128,7 @@ class App {
   /** What the Branches and Worktrees rows show (see filters.ts). */
   branchFilter = $state<BranchFilter>({ ...DEFAULT_BRANCH_FILTER });
   worktreeFilter = $state<WorktreeFilter>({ ...DEFAULT_WORKTREE_FILTER });
+  pullFilter = $state<PullFilter>({ ...DEFAULT_PULL_FILTER });
   /** The repository's pull requests on GitHub, or why there are none; null until asked. */
   pulls = $state<PullRequests | null>(null);
   /** Claude Code sessions that ran in the repository's folders, most recent first (see sessions.ts). */
@@ -194,7 +209,7 @@ class App {
    * Selects a commit and scrolls to it, loading more history when it isn't loaded yet
    * (doubling the page each time, up to 20k commits).
    */
-  async reveal(hash: string) {
+  async reveal(hash: string, quiet = false) {
     let commit = this.data?.commits.find((c) => c.hash === hash);
     if (!commit && this.repo) {
       // Ask where it is first: it may be thousands of commits down, or hidden by a filter
@@ -202,7 +217,7 @@ class App {
       this.working = finding;
       const where = await host.locate(this.query(), hash).catch(() => null);
       if (this.working === finding) this.working = null;
-      if (where && 'hidden' in where) return this.hiddenCommit(hash, where.hidden);
+      if (where && 'hidden' in where) return this.hiddenCommit(hash, where.hidden, quiet);
       if (where && where.at >= this.maxCommits) {
         // Load that far in one go (and a page past it), saying so
         const target = (Math.floor(where.at / PAGE) + 2) * PAGE;
@@ -213,16 +228,18 @@ class App {
       }
       commit = this.data?.commits.find((c) => c.hash === hash);
     }
-    if (!commit) return this.flash("That commit isn't in the graph.");
+    if (!commit) return quiet ? undefined : this.flash("That commit isn't in the graph.");
     void this.select(commit);
     await tick();
     this.scrollTo(hash);
   }
 
   /** A commit to reveal that the graph leaves out: say which filters do, and offer to lift them. */
-  private hiddenCommit(hash: string, byFilters: boolean) {
+  private hiddenCommit(hash: string, byFilters: boolean, quiet = false) {
     if (!byFilters)
-      return this.flash("No branch, tag or worktree has that commit: the graph can't show it.");
+      return quiet
+        ? undefined
+        : this.flash("No branch, tag or worktree has that commit: the graph can't show it.");
     const active = [
       this.authors.length && `the author filter (${this.authors.length})`,
       this.branches.length && `the branches shown (${this.branches.length})`,
@@ -340,7 +357,47 @@ class App {
     const repo = this.repo;
     if (!repo) return;
     const pulls = await host.getPullRequests(repo, fresh).catch(() => null);
-    if (repo === this.repo) this.pulls = pulls;
+    if (repo !== this.repo) return;
+    this.pulls = pulls;
+    // The pull request shown: its reviews and checks as they are now, its changes again if pushed to
+    const shown = this.pullPanel?.pr;
+    const now = pulls?.status === 'ok' && pulls.prs.find((p) => p.number === shown?.number);
+    if (shown && now)
+      if (now.headOid !== shown.headOid || now.mergeOid !== shown.mergeOid) void this.openPull(now);
+      else this.pullPanel!.pr = now;
+  }
+
+  /**
+   * A pull request's chip was clicked: its head selected in the graph, when the graph has it, and its
+   * changes in the details panel.
+   */
+  async showPull(pr: PullRequest) {
+    await this.reveal(pr.headOid, true);
+    if (this.selected?.hash !== pr.headOid) this.selected = null;
+    await this.openPull(pr);
+  }
+
+  /** A pull request's changes in the details panel (its head fetched first when it isn't here). */
+  async openPull(pr: PullRequest) {
+    const [repo, pulls] = [this.repo, this.pulls];
+    if (!repo || pulls?.status !== 'ok') return;
+    this.compareWith =
+      this.details =
+      this.compareFiles =
+      this.branchDiff =
+      this.worktreePanel =
+        null;
+    this.pullPanel = { pr, from: '', to: '', files: null };
+    const still = () => this.repo === repo && this.pullPanel?.pr.number === pr.number;
+    try {
+      const { from, to } = await host.pullRange(repo, pulls.remote, $state.snapshot(pr));
+      const files = await host.compare(repo, from, to);
+      if (still()) this.pullPanel = { pr, from, to, files };
+    } catch (e) {
+      if (!still()) return;
+      this.pullPanel = null;
+      this.flash(`Couldn't get the changes of #${pr.number}: ${(e as Error).message}`);
+    }
   }
 
   /** Read from Claude Code's files after every load: cheap, the host reads only what changed. */
@@ -392,6 +449,11 @@ class App {
 
   setBranchFilter(patch: Partial<BranchFilter>) {
     this.branchFilter = { ...this.branchFilter, ...patch };
+    this.persist();
+  }
+
+  setPullFilter(patch: Partial<PullFilter>) {
+    this.pullFilter = { ...this.pullFilter, ...patch };
     this.persist();
   }
 
@@ -483,7 +545,8 @@ class App {
       showWorktrees: this.showWorktrees,
       base: this.base,
       branchFilter: this.branchFilter,
-      worktreeFilter: this.worktreeFilter
+      worktreeFilter: this.worktreeFilter,
+      pullFilter: this.pullFilter
     });
   }
 
@@ -499,6 +562,7 @@ class App {
     this.base = saved?.base ?? null;
     this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter };
     this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter };
+    this.pullFilter = { ...DEFAULT_PULL_FILTER, ...saved?.pullFilter };
     this.sentView = JSON.stringify(this.repoView());
   }
 
@@ -564,7 +628,9 @@ class App {
           void this.showWorktreeChanges(still);
         } else this.closeDetails();
       } else if (this.branchDiff) void this.openBranchDiff();
-      else if (this.selected) {
+      else if (this.pullPanel) {
+        // A pull request's commits don't change with the repository: new pushes come with loadPulls
+      } else if (this.selected) {
         const still = data.commits.find((c) => c.hash === this.selected!.hash);
         if (still) void this.select(still);
         else this.closeDetails();
@@ -676,7 +742,7 @@ class App {
   async showWorktreeChanges(w: Worktree) {
     const details = await host.getWorktreeDetails(w.path, this.data?.compare?.base ?? this.base);
     this.worktreeDetails[w.path] = details;
-    this.compareWith = this.details = this.compareFiles = this.branchDiff = null;
+    this.compareWith = this.details = this.compareFiles = this.branchDiff = this.pullPanel = null;
     this.worktreePanel = { worktree: w, files: details.files };
   }
 
@@ -686,6 +752,7 @@ class App {
     if (!this.repo || !c?.mergeBase) return;
     const files = await host.compare(this.repo, c.mergeBase, UNCOMMITTED);
     this.selected = this.compareWith = this.details = this.compareFiles = this.worktreePanel = null;
+    this.pullPanel = null;
     this.branchDiff = { base: c.base, mergeBase: c.mergeBase, files };
   }
 
@@ -746,6 +813,7 @@ class App {
     }
     if (compare && this.selected && !this.selected.worktree && this.selected.hash !== commit.hash) {
       this.compareWith = commit;
+      this.pullPanel = null;
       // Older commit first; UNCOMMITTED is always the newest side.
       const commits = this.data!.commits;
       const [newer, older] =
@@ -756,7 +824,7 @@ class App {
       return;
     }
     this.selected = commit;
-    this.branchDiff = this.worktreePanel = null;
+    this.branchDiff = this.worktreePanel = this.pullPanel = null;
     this.compareWith = null;
     this.compareFiles = null;
     this.details = await host.getDetails(this.repo, $state.snapshot(commit));
@@ -767,7 +835,7 @@ class App {
     this.compareWith = null;
     this.details = null;
     this.compareFiles = null;
-    this.branchDiff = this.worktreePanel = null;
+    this.branchDiff = this.worktreePanel = this.pullPanel = null;
   }
 }
 

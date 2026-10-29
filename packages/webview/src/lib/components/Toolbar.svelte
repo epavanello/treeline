@@ -63,6 +63,11 @@
   const ROWS = [
     ['worktrees', 'Worktrees', 'Every worktree of this repository and its status'],
     ['branches', 'Branches', 'Local branches, most recently committed first'],
+    [
+      'pulls',
+      'Pull Requests',
+      "The repository's pull requests on GitHub, most recently updated first"
+    ],
     ['tags', 'Tags', 'Tags, most recent first']
   ] as const;
   const COLUMNS = [
@@ -203,7 +208,7 @@
             variant="ghost"
             size="icon-xs"
             icon={Rows3}
-            hint="Choose the rows under the toolbar: worktrees, branches, tags. Remembered across windows."
+            hint="Choose the rows under the toolbar: worktrees, branches, pull requests, tags. Remembered across windows."
           />
         {/snippet}
       </Popover.Trigger>

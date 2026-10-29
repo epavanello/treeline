@@ -11,9 +11,10 @@
   } from '@lucide/svelte';
   import type { RefSummary } from '@treeline/shared';
   import { app } from '$lib/app.svelte';
-  import { owner } from '$lib/filters';
+  import { owner, pullsOf } from '$lib/filters';
   import { cn } from '$lib/utils';
   import AuthorAvatar from './AuthorAvatar.svelte';
+  import { PULL_STATE } from './PullBadge.svelte';
   import RefCard from './RefCard.svelte';
   import RefName from './RefName.svelte';
   import Tip from './Tip.svelte';
@@ -57,6 +58,12 @@
     ref.kind === 'head' || ref.kind === 'remote' ? owner(app.branchDetails[ref.name]) : null
   );
   const up = $derived(ref.kind === 'head' ? ref.upstream : undefined);
+  /** Its open pull request, as the branch chips show it (the card has the rest). */
+  const pr = $derived.by(() => {
+    const row = ref.kind === 'head' || ref.kind === 'remote' ? app.rowOf.get(ref.name) : undefined;
+    const p = row && pullsOf(row, app.filterContext.pulls)[0];
+    return p && (p.state === 'open' || p.state === 'draft') ? p : undefined;
+  });
   /** With one remote, its name says nothing the cloud doesn't. */
   const manyRemotes = $derived((app.data?.remotes.length ?? 0) > 1);
 </script>
@@ -129,6 +136,10 @@
             />{#if up.ahead}↑{up.ahead}{/if}{#if up.behind}↓{up.behind}{/if}
           </span>
         {/if}
+      {/if}
+      {#if pr}
+        {@const s = PULL_STATE[pr.state]}
+        <s.icon class="size-3 shrink-0 {s.class}" />
       {/if}
       {#if o}
         <AuthorAvatar name={o.name} email={o.email} class="size-3.5" />

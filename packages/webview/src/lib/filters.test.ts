@@ -2,7 +2,9 @@ import type { BranchDetails, GraphData, PullRequest, RefSummary, Worktree } from
 import { describe, expect, it } from 'vitest';
 import {
   branchRows,
+  currentPull,
   DEFAULT_BRANCH_FILTER,
+  DEFAULT_PULL_FILTER,
   DEFAULT_WORKTREE_FILTER,
   deletable,
   filterBranches,
@@ -10,6 +12,8 @@ import {
   isMine,
   owner,
   primary,
+  pullMatches,
+  pullRow,
   pullsOf,
   removable,
   worktreeMatches,
@@ -188,5 +192,65 @@ describe('worktree filters', () => {
     expect(removable(wt({}))).toBe(true);
     expect(removable(wt({ main: true }))).toBe(false);
     expect(removable(wt({ current: true }))).toBe(false);
+  });
+});
+
+describe('pull request filters', () => {
+  const rows = branchRows(data);
+  const p = (number: number, over: Partial<PullRequest>) =>
+    ({
+      number,
+      head: `pr-${number}`,
+      state: 'open',
+      author: 'ada',
+      reviewers: [],
+      decision: null,
+      checks: 'passing',
+      threads: { resolved: 0, unresolved: 0 },
+      ...over
+    }) as PullRequest;
+  const prs = [
+    p(1, { head: 'mine' }),
+    p(2, { head: 'team', state: 'draft', author: 'bob', checks: 'failing' }),
+    p(3, { author: 'bob', reviewers: [{ login: 'ada', state: 'requested' }] }),
+    p(4, { author: 'bob', reviewers: [{ login: 'ada', state: 'approved' }], decision: 'changes' }),
+    p(5, { head: 'theirs', state: 'merged', threads: { resolved: 0, unresolved: 2 } }),
+    p(6, { state: 'closed', author: 'bob' })
+  ];
+  const shown = (f = {}) =>
+    prs
+      .filter((pr) => pullMatches(pr, { ...DEFAULT_PULL_FILTER, ...f }, 'ada', rows))
+      .map((pr) => pr.number);
+
+  it('shows the open ones, drafts included, by default', () => {
+    expect(shown()).toEqual([1, 2, 3, 4]);
+    expect(shown({ state: 'any' })).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(shown({ state: 'draft' })).toEqual([2]);
+    expect(shown({ state: 'merged' })).toEqual([5]);
+  });
+
+  it('filters by whose: opened by me, or waiting for my review', () => {
+    expect(shown({ owner: 'mine', state: 'any' })).toEqual([1, 5]);
+    // Already reviewed (4) isn't waiting: asked again it would be
+    expect(shown({ owner: 'review' })).toEqual([3]);
+  });
+
+  it('keeps those whose branch is on this machine', () => {
+    // origin/team has no local copy; theirs is local
+    expect(shown({ branch: 'local', state: 'any' })).toEqual([1, 5]);
+    expect(pullRow(prs[1], rows)?.remote?.ref.name).toBe('origin/team');
+  });
+
+  it("finds the checked-out branch's most recent one", () => {
+    const older = { ...prs[0], number: 9, updatedAt: 1 };
+    const newer = { ...prs[0], number: 10, updatedAt: 2 };
+    expect(currentPull([older, ...prs.slice(1), newer], rows, 'mine')?.number).toBe(10);
+    expect(currentPull(prs, rows, 'main')).toBeUndefined();
+    expect(currentPull(prs, rows, null)).toBeUndefined();
+  });
+
+  it('finds the open ones waiting on their author', () => {
+    // A merged one with open conversations needs nothing anymore
+    expect(shown({ needs: 'work', state: 'any' })).toEqual([2, 4]);
   });
 });

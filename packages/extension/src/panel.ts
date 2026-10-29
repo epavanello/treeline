@@ -89,6 +89,8 @@ export class GraphPanel {
       getPullRequests: (repo, fresh) =>
         timed(`pull requests of ${path.basename(repo)}`, pulls.get(repo, fresh)),
       connectGitHub: (repo) => pulls.get(repo, true, true),
+      pullRange: (repo, remote, pr) =>
+        timed(`pull request #${pr.number}`, git.pullRange(repo, remote, pr)),
       openUrl: async (url) => {
         // Only web pages: the URL comes from the webview
         if (/^https:\/\//.test(url)) await vscode.env.openExternal(vscode.Uri.parse(url));
@@ -109,6 +111,8 @@ export class GraphPanel {
       },
       openScm: async () => void (await vscode.commands.executeCommand('workbench.view.scm')),
       openFolder: async (folder) => void (await openFolder(folder)),
+      openTerminal: async (folder) =>
+        vscode.window.createTerminal({ cwd: folder, name: path.basename(folder) }).show(),
       copy: async (text) => vscode.env.clipboard.writeText(text),
       getView: async () => {
         // Saved settings may predate newer fields: fill them in from the defaults

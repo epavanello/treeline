@@ -28,7 +28,8 @@ and diffs open on your real files, so Go to Definition just works.
 ## 🗂️ Worktrees at a glance
 
 **One chip per worktree:** its branch, ↑↓ vs main, its uncommitted files on hover, its own row in the graph.
-Create one from any branch with **+**, open it, or bring its branch back to the main folder.
+Create one from any branch with **+**, open it or a terminal in it, or bring its branch back to the
+main folder.
 
 ![Worktrees: chips, hover cards and graph rows](https://raw.githubusercontent.com/epavanello/treeline/main/docs/features/worktrees.gif)
 
@@ -40,9 +41,16 @@ on it, or its whole stack.
 ![Graph Filter: a branch's whole stack](https://raw.githubusercontent.com/epavanello/treeline/main/docs/features/stack.gif)
 
 **Pull requests where you look.** State, reviewers and their verdicts, open conversations and checks on
-every branch, through your `gh` CLI or the editor's GitHub account. Every branch shows its owner.
+every branch and graph badge, through your `gh` CLI (any of its accounts) or the editor's GitHub account.
+Every branch shows its owner.
 
 ![A branch's pull request on its card](https://raw.githubusercontent.com/epavanello/treeline/main/docs/features/pull-requests.gif)
+
+**A row of pull requests.** Filter it to yours, those waiting for your review, drafts, merged or closed
+ones, those whose branch you have, or those waiting on their author; the one of the branch you're on
+comes first. **Review a pull request in the details panel**, like a commit: its files as a list, a tree
+or inline diffs, with its reviews, checks and fork point. Its branch doesn't have to be on your machine:
+Treeline fetches what GitHub has, without making a branch.
 
 ## 🧹 Clean up in one go
 

@@ -16,6 +16,7 @@ import {
   type FileStatus,
   type GraphData,
   type GraphQuery,
+  type PullRequest,
   type Ref,
   type RefSummary,
   type Side,
@@ -797,6 +798,36 @@ export class Git {
       own ? containing(own) : Promise.resolve([] as string[])
     ]);
     return { above, stack };
+  }
+
+  /**
+   * A pull request's diff, as GitHub shows it: from where its head forked from its base to its head.
+   * A head that isn't here (never fetched, its branch deleted) is fetched as GitHub keeps it,
+   * `refs/pull/<n>/head`, creating no ref. A merged one is compared with the base as it was before
+   * its merge (`<merge>^1`): the base has it all since.
+   */
+  async pullRange(
+    repo: string,
+    remote: string,
+    pr: Pick<PullRequest, 'number' | 'headOid' | 'base' | 'mergeOid'>
+  ) {
+    const have = (rev: string) =>
+      this.exec(repo, ['cat-file', '-e', `${rev}^{commit}`]).then(
+        () => true,
+        () => false
+      );
+    if (!(await have(pr.headOid)))
+      await this.exec(repo, ['fetch', '--no-tags', remote, `refs/pull/${pr.number}/head`]);
+    let base = `refs/remotes/${remote}/${pr.base}`;
+    if (pr.mergeOid) {
+      // On the base, so usually here already; else GitHub hands out a commit by its hash
+      if (!(await have(pr.mergeOid)))
+        await this.try(this.exec(repo, ['fetch', '--no-tags', remote, pr.mergeOid]), '');
+      if (await have(pr.mergeOid)) base = `${pr.mergeOid}^1`;
+    }
+    if (!(await have(base))) base = pr.base;
+    const from = (await this.exec(repo, ['merge-base', base, pr.headOid])).trim();
+    return { from, to: pr.headOid };
   }
 
   /** What a summary is written from: commit `rev`'s diff, or `repo`'s uncommitted changes (`rev` null). */

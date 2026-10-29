@@ -157,6 +157,8 @@ export interface PullRequest {
   headOid: string;
   /** The branch it goes into. */
   base: string;
+  /** Merged: the commit that brought it into the base (a merge, a squash, or the last rebased one). */
+  mergeOid?: string;
   /** The review verdict GitHub shows; null when the repository requires none and nobody gave one. */
   decision: 'approved' | 'changes' | 'required' | null;
   /** Everyone asked for a review or who gave one, with their latest verdict. */
@@ -175,7 +177,16 @@ export interface PullRequest {
  * (`signin`: neither the gh CLI nor the editor's GitHub account can read it), or a failure.
  */
 export type PullRequests =
-  | { status: 'ok'; via: 'gh' | 'editor'; repo: string; prs: PullRequest[] }
+  | {
+      status: 'ok';
+      via: 'gh' | 'editor';
+      repo: string;
+      /** The git remote that is this repository on GitHub. */
+      remote: string;
+      /** The GitHub login they were read with: "mine" and "waiting for my review". */
+      viewer: string;
+      prs: PullRequest[];
+    }
   | { status: 'none' }
   | { status: 'signin'; repo: string }
   | { status: 'error'; message: string };
@@ -378,6 +389,8 @@ export type Action =
 export interface ViewSettings {
   worktrees: boolean;
   branches: boolean;
+  /** The repository's GitHub pull requests (when it's on GitHub). */
+  pulls: boolean;
   tags: boolean;
   /** The commit list's optional columns (Graph and Description are always shown). */
   columns: Record<Column, boolean>;
@@ -412,6 +425,7 @@ export interface Grammars {
 export const DEFAULT_VIEW: ViewSettings = {
   worktrees: true,
   branches: true,
+  pulls: true,
   tags: true,
   columns: { date: true, author: true, commit: true },
   files: 'list',
@@ -436,6 +450,8 @@ export interface HostApi {
   openScm(): Promise<void>;
   /** Opens a folder (a worktree) in a new window of the running editor. */
   openFolder(path: string): Promise<void>;
+  /** Opens an integrated terminal in a folder (a worktree). */
+  openTerminal(path: string): Promise<void>;
   /** Writes a commit message for the current changes into the Source Control input box. */
   generateCommitMessage(repo: string): Promise<void>;
   /**
@@ -468,6 +484,11 @@ export interface HostApi {
   /** Signs in with the editor's GitHub account (it asks for consent), then loads them. */
   connectGitHub(repo: string): Promise<PullRequests>;
   openUrl(url: string): Promise<void>;
+  /**
+   * The commits a pull request's diff is between, as GitHub shows it: where its head forked from its
+   * base, and its head. A head that isn't here is fetched from `remote` (`refs/pull/<n>/head`).
+   */
+  pullRange(repo: string, remote: string, pr: PullRequest): Promise<{ from: string; to: string }>;
   /** Claude Code sessions that ran in these folders (a repository's worktrees), most recent first. */
   getClaudeSessions(folders: string[]): Promise<ClaudeSession[]>;
   /** Opens it again: in the desktop app when it ran there, else `claude --resume` in a terminal. */

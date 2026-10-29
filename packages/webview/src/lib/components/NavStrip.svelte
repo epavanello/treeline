@@ -25,8 +25,8 @@
     count: number;
     /** How many chips the filter lets through. */
     shown?: number;
-    /** Shown instead of the chips when there are none. */
-    empty: string;
+    /** Shown instead of the chips when there are none (a snippet: a button to get some). */
+    empty: string | Snippet;
     children: Snippet;
     action?: Snippet;
     filter?: {
@@ -96,7 +96,11 @@
     {#if shown}
       {@render children()}
     {:else}
-      <span class="text-muted-foreground opacity-70">{empty}</span>
+      {#if typeof empty === 'string'}
+        <span class="text-muted-foreground opacity-70">{empty}</span>
+      {:else}
+        {@render empty()}
+      {/if}
     {/if}
   </div>
 </div>

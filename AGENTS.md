@@ -131,7 +131,7 @@ branch with main, review diffs with working language features, juggle worktrees 
    `vscode.extensions.all`), since a webview can't ask the editor for either. A theme change posts
    `{ event: 'theme' }`. Both dividers drag and are remembered (`detailsSize`, `detailsSplit`).
 7. **Pull requests** (`pulls.ts`, vscode-free, unit-tested with a fake `gh`): one GraphQL query for the
-   50 most recently updated PRs (state, review decision, latest review per reviewer, review requests,
+   100 most recently updated PRs (state, review decision, latest review per reviewer, review requests,
    review threads resolved/unresolved, checks rollup), run by `gh api graphql` with gh's active
    account, then each other signed-in account (`gh auth status --json hosts`, `gh auth token --user`,
    the working one remembered per repo), else with the editor's GitHub session (`getSession('github',
@@ -139,7 +139,16 @@ branch with main, review diffs with working language features, juggle worktrees 
    push and branch deletions (`extension.ts`); the webview asks after each load and every minute.
    Matched to branches by head branch name (`pullsOf`), forks' PRs left out. A merged PR whose head is
    the branch's commit makes it merged (`isMerged`): squash merges, which git alone can't see.
-   Shown in `RefCard` (`PullCard`), on chips (`PullBadge`) and in the branch menus (`pullItems`).
+   Shown in `RefCard` (`PullCard`), on chips (`PullBadge`), as a state icon in graph badges
+   (`RefBadge`, open/draft only) and in the branch menus (`pullItems`). **Pull Requests row**
+   (`PullStrip`, a `NavStrip` under Branches; "Connect GitHub" when no account can read them):
+   `PullFilter` in `filters.ts` (whose: mine / waiting for my review, by `PullRequests.viewer`; state;
+   branch on this machine, `pullRow`; needing work from its author). Click = its head revealed
+   (quietly when the graph lacks it) and `app.openPull()`: the PR in the details panel
+   (`app.pullPanel`), its files, tree or inline diff between `Git.pullRange`'s `from` (merge base of
+   `<remote>/<base>` and the head, or `<mergeCommit>^1` once merged) and `to` (the head). A head
+   that isn't here is fetched as `refs/pull/<n>/head`, making no ref. Right-click: `pullMenu()` (its
+   actions, then its branch's menu).
 8. **Author filter**: `GraphQuery.authors` → repeated `--author=^<escaped name> <` (OR, exact name).
 
 Later ideas: GitHub avatars (see `AuthorAvatar`), commit search
@@ -199,7 +208,7 @@ packages/
     src/lib/rpc.ts          typed Proxy over postMessage (`host.getGraph(q)` …)
     src/lib/menus.ts        context menus as data
     src/lib/components/     CommitList, GraphSvg, DetailsPanel, Toolbar, CompareBar, NavStrip (+ its rows
-                            WorktreeStrip, RefStrip), BranchPicker (the branch filter), RefCard,
+                            WorktreeStrip, RefStrip, PullStrip), BranchPicker (the branch filter), RefCard,
                             BranchState, MultiFilter (authors, base), FilterMenu (row filters),
                             AuthorAvatar/AuthorStack, RefName, PullBadge/PullCard, ActionMenu,
                             RefBadge, WorktreeState, Tip

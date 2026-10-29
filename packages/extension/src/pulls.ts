@@ -11,10 +11,12 @@ import type { Git } from './git';
 const TTL = 60_000;
 
 const QUERY = `query($owner: String!, $name: String!) {
+  viewer { login }
   repository(owner: $owner, name: $name) {
-    pullRequests(first: 50, orderBy: {field: UPDATED_AT, direction: DESC}) {
+    pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         number title url state isDraft updatedAt headRefName headRefOid baseRefName isCrossRepository
+        mergeCommit { oid }
         author { login }
         reviewDecision
         reviewRequests(first: 20) {
@@ -73,6 +75,7 @@ export function toPullRequest(n: any): PullRequest {
     head: n.headRefName,
     headOid: n.headRefOid,
     base: n.baseRefName,
+    ...(n.mergeCommit?.oid && { mergeOid: n.mergeCommit.oid }),
     decision:
       n.reviewDecision === 'APPROVED'
         ? 'approved'
@@ -145,7 +148,7 @@ export class Pulls {
     if (!nodes) return { status: 'signin', repo: slug };
     // A fork's branch can share a name with one of ours: only pull requests from this repository
     const prs = nodes.filter((n: any) => !n.isCrossRepository).map(toPullRequest);
-    return { status: 'ok', via, repo: slug, prs };
+    return { status: 'ok', via, repo: slug, remote, viewer: data.viewer?.login ?? '', prs };
   }
 
   /**

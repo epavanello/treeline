@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.8.0
+
+- A Pull Requests row under the branches: the repository's pull requests on GitHub with their state,
+  review, checks and open conversations. The one of the branch you have checked out comes first. Its
+  filter: yours, waiting for your review, by state, with their branch on your machine, or waiting on
+  their author. Right-click: its actions, then its branch's
+- Review a pull request in the details panel, like a commit: its files as a list, a tree or inline
+  diffs, as GitHub shows them, with its title, reviews, checks, branch and fork point. From its chip,
+  "View changes" in a branch's card, or the branch's menu. A pull request whose branch isn't on your
+  machine is fetched from GitHub first, without making a branch; a merged one shows what it brought in
+- Branch badges in the graph show a small icon when their branch has an open or draft pull request
+- "Connect GitHub" in the Pull Requests row when no gh account here can read the repository
+- Worktree menus: Open Terminal Here, a terminal in the worktree's folder
+- The 100 most recently updated pull requests are read, instead of 50
+
 ## 0.7.2
 
 - Fixed: the folder badge on another worktree's Uncommitted Changes row opened a card saying its

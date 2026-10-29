@@ -9,6 +9,7 @@ import {
   UNCOMMITTED,
   type Action,
   type Commit,
+  type PullRequest,
   type Ref,
   type RefSummary,
   type Worktree
@@ -24,6 +25,7 @@ import {
   Copy,
   Crosshair,
   Eraser,
+  FileDiff,
   ExternalLink,
   Eye,
   EyeOff,
@@ -48,13 +50,14 @@ import {
   Plus,
   RotateCcw,
   Sparkles,
+  SquareTerminal,
   Tag,
   Trash2,
   Undo2
 } from '@lucide/svelte';
 import { app } from './app.svelte';
 import type { Hint } from './components/Tip.svelte';
-import { isBase, pullsOf } from './filters';
+import { isBase, primary, pullRow, pullsOf } from './filters';
 import { host } from './rpc';
 
 export type MenuTarget =
@@ -91,7 +94,8 @@ const short = (hash: string) => hash.slice(0, 8);
 const repoName = () => app.repos.find((r) => r.path === app.repo)?.name ?? 'repo';
 const REWRITES = 'Rewrites commits: if they were already pushed you will need to force push.';
 
-export function menuItems(target: MenuTarget): MenuItem[] {
+/** `pulls`: with the branch's pull requests (not when the menu is a pull request's own). */
+export function menuItems(target: MenuTarget, pulls = true): MenuItem[] {
   const current = app.data?.currentBranch;
   const here = current ?? 'HEAD';
   const compareWith = (name: string, label = `Compare ${here} with ${name}`): MenuItem => ({
@@ -218,7 +222,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
             }
           },
           ...deleteItems(ref),
-          ...pullItems(ref),
+          ...when(pulls, pullItems(ref)),
           ...when(!worktree, claudeItems(ref.name)),
           sep,
           { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
@@ -267,7 +271,7 @@ export function menuItems(target: MenuTarget): MenuItem[] {
             ]
           },
           ...deleteItems(ref),
-          ...pullItems(ref),
+          ...when(pulls, pullItems(ref)),
           ...claudeItems(app.rowOf.get(ref.name)?.local?.ref.name ?? local),
           sep,
           { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
@@ -565,6 +569,12 @@ export function worktreeItems(w: Worktree | undefined): MenuItem[] {
         hint: `Opens ${w.path} in a new editor window.`
       }
     ]),
+    {
+      label: 'Open Terminal Here',
+      icon: SquareTerminal,
+      run: () => host.openTerminal(w.path),
+      hint: `A terminal in this editor, in ${w.path}.`
+    },
     ...when(other && w.branch, [
       {
         label: 'Bring to Main Worktree',
@@ -688,24 +698,62 @@ function claudeItems(branch: string | null | undefined, worktree?: Worktree): Me
 
 const PR_STATE = { open: 'Open', draft: 'Draft', merged: 'Merged', closed: 'Closed' } as const;
 
-/** The pull requests opened from the branch: one item, or a submenu when there are several. */
+/** What can be done with a pull request: its changes here, or on GitHub. */
+function pullActions(p: PullRequest): MenuItem[] {
+  return [
+    {
+      label: 'View Changes',
+      icon: FileDiff,
+      run: () => app.openPull(p),
+      hint: {
+        title: `#${p.number} ${p.title}`,
+        body: `Its files and diffs in the details panel, as GitHub shows them: what ${p.head} changed since it forked from ${p.base}.`,
+        note: "A head that isn't on your machine is fetched from GitHub first, without making a branch.",
+        command: `git diff $(git merge-base ${p.base} <head>) <head>`
+      }
+    },
+    {
+      label: 'Open on GitHub',
+      icon: ExternalLink,
+      run: () => host.openUrl(p.url),
+      hint: `${PR_STATE[p.state]}, by ${p.author}. Its conversation, reviews and checks.`
+    }
+  ];
+}
+
+/** The pull requests opened from the branch: their actions, under a heading each when several. */
 function pullItems(ref: Ref): MenuItem[] {
   const row = app.rowOf.get(ref.name);
   const prs = row ? pullsOf(row, app.filterContext.pulls).slice(0, 5) : [];
-  const item = (p: (typeof prs)[number], label: string): MenuItem => ({
-    label,
-    icon: GitPullRequest,
-    run: () => host.openUrl(p.url),
-    hint: { title: p.title, body: `${PR_STATE[p.state]}, by ${p.author}. Opens it on GitHub.` }
-  });
-  if (prs.length < 2) return [sep, ...prs.map((p) => item(p, `Open Pull Request #${p.number}`))];
+  if (prs.length < 2)
+    return prs.flatMap((p) => [sep, { heading: `Pull Request #${p.number}` }, ...pullActions(p)]);
   return [
     sep,
     {
       label: 'Pull Requests',
       icon: GitPullRequest,
-      items: prs.map((p) => item(p, `#${p.number} ${PR_STATE[p.state].toLowerCase()}: ${p.title}`))
+      items: prs.flatMap((p) => [
+        { heading: `#${p.number} ${PR_STATE[p.state].toLowerCase()}: ${p.title}` },
+        ...pullActions(p)
+      ])
     }
+  ];
+}
+
+/** A pull request's chip: its own actions, then its branch's, when the branch is here. */
+export function pullMenu(p: PullRequest): MenuItem[] {
+  const row = pullRow(p, app.rows);
+  const r = row && primary(row);
+  return [
+    ...pullActions(p),
+    { label: 'Copy Link', icon: Copy, run: copy(p.url) },
+    ...(r
+      ? [
+          sep,
+          { heading: `Branch ${r.ref.name}` },
+          ...menuItems({ kind: 'ref', ref: r.ref, commit: refCommit(r) }, false)
+        ]
+      : [])
   ];
 }
 

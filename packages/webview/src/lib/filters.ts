@@ -1,5 +1,5 @@
 /**
- * The Branches and Worktrees rows' own filters: which chips they show (the graph is filtered from
+ * The Branches, Pull Requests and Worktrees rows' own filters: which chips they show (the graph is filtered from
  * the toolbar). Pure functions over the graph data, the branch details and the pull requests,
  * unit-tested.
  */
@@ -30,6 +30,24 @@ export const DEFAULT_BRANCH_FILTER: BranchFilter = {
   state: 'any'
 };
 export const DEFAULT_WORKTREE_FILTER: WorktreeFilter = { owner: 'anyone', state: 'any' };
+
+export interface PullFilter {
+  /** Opened by you, or asking you for a review. */
+  owner: 'anyone' | 'mine' | 'review';
+  /** `open`: drafts included. */
+  state: 'open' | 'draft' | 'merged' | 'closed' | 'any';
+  /** Its branch is on your machine. */
+  branch: 'anywhere' | 'local';
+  /** Waiting on its author: changes requested, checks failing, conversations open. */
+  needs: 'anything' | 'work';
+}
+
+export const DEFAULT_PULL_FILTER: PullFilter = {
+  owner: 'anyone',
+  state: 'open',
+  branch: 'anywhere',
+  needs: 'anything'
+};
 
 /** States whose chips are cleanup candidates: the row offers to delete or remove them all. */
 export const CLEANUP = {
@@ -118,6 +136,40 @@ export function remoteName(row: BranchRow) {
 /** Pull requests opened from the branch, most recently updated first. */
 export const pullsOf = (row: BranchRow, pulls: PullRequest[]) =>
   pulls.filter((p) => p.head === remoteName(row)).sort((a, b) => b.updatedAt - a.updatedAt);
+
+/** The branch a pull request was opened from, when the rows know it (see `pullsOf`). */
+export const pullRow = (pr: PullRequest, rows: BranchRow[]) =>
+  rows.find((row) => remoteName(row) === pr.head);
+
+/**
+ * The pull request of the branch checked out, by name (wherever its commits stand against GitHub's):
+ * its most recently updated one.
+ */
+export const currentPull = (prs: PullRequest[], rows: BranchRow[], branch: string | null) =>
+  branch
+    ? prs
+        .filter((p) => pullRow(p, rows)?.local?.ref.name === branch)
+        .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    : undefined;
+
+const isOpen = (pr: PullRequest) => pr.state === 'open' || pr.state === 'draft';
+
+/** Open, and its author has something to do: changes asked, checks failing, conversations open. */
+export const needsWork = (pr: PullRequest) =>
+  isOpen(pr) && (pr.decision === 'changes' || pr.checks === 'failing' || pr.threads.unresolved > 0);
+
+/** `viewer`: the GitHub login they were read with. */
+export function pullMatches(pr: PullRequest, f: PullFilter, viewer: string, rows: BranchRow[]) {
+  if (f.owner === 'mine' && pr.author !== viewer) return false;
+  if (
+    f.owner === 'review' &&
+    !(isOpen(pr) && pr.reviewers.some((r) => r.login === viewer && r.state === 'requested'))
+  )
+    return false;
+  if (f.state === 'open' ? !isOpen(pr) : f.state !== 'any' && pr.state !== f.state) return false;
+  if (f.branch === 'local' && !pullRow(pr, rows)?.local) return false;
+  return f.needs !== 'work' || needsWork(pr);
+}
 
 /** A merged pull request was opened from exactly this commit: merged, squash merges included. */
 const mergedByPull = (hash: string, pulls: PullRequest[]) =>

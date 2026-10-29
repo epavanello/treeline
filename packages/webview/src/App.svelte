@@ -7,6 +7,7 @@
   import DetailsPanel from '$lib/components/DetailsPanel.svelte';
   import { ROW } from '$lib/components/GraphSvg.svelte';
   import Toolbar from '$lib/components/Toolbar.svelte';
+  import PullStrip from '$lib/components/PullStrip.svelte';
   import RefStrip from '$lib/components/RefStrip.svelte';
   import WorktreeStrip from '$lib/components/WorktreeStrip.svelte';
   import * as Resizable from '$lib/components/ui/resizable';
@@ -68,6 +69,7 @@
     <CompareBar />
     <WorktreeStrip />
     <RefStrip kind="heads" />
+    <PullStrip />
     <RefStrip kind="tags" />
     {#if app.notice}
       {@const n = app.notice}
@@ -107,7 +109,7 @@
         <Resizable.Pane order={1}>
           <CommitList bind:scroller />
         </Resizable.Pane>
-        {#if app.selected || app.branchDiff || app.worktreePanel}
+        {#if app.selected || app.branchDiff || app.worktreePanel || app.pullPanel}
           <Resizable.Handle />
           <Resizable.Pane order={2} defaultSize={app.view.detailsSize} minSize={15}>
             <DetailsPanel />

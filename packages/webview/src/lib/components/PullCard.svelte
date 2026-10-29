@@ -1,13 +1,22 @@
 <script lang="ts">
   import { ago, type PullRequest } from '@treeline/shared';
-  import { MessageSquare } from '@lucide/svelte';
+  import { FileDiff, MessageSquare } from '@lucide/svelte';
+  import { app } from '$lib/app.svelte';
   import { host } from '$lib/rpc';
+  import { Button } from '$lib/components/ui/button';
   import { cn } from '$lib/utils';
   import AuthorAvatar from './AuthorAvatar.svelte';
   import { PULL_STATE } from './PullBadge.svelte';
 
-  /** A pull request in a branch's card: title (opens it), state, review, conversations, checks. */
-  let { pr, icon = true }: { pr: PullRequest; icon?: boolean } = $props();
+  /**
+   * A pull request in a branch's card: title (opens it), state, review, conversations, checks, and
+   * a button for its changes (`view`, not where they're already shown).
+   */
+  let {
+    pr,
+    icon = true,
+    view = true
+  }: { pr: PullRequest; icon?: boolean; view?: boolean } = $props();
 
   const s = $derived(PULL_STATE[pr.state]);
   const DECISION = {
@@ -63,6 +72,18 @@
       </span>
     {/if}
     <span>by {pr.author} · {ago(pr.updatedAt)}</span>
+    {#if view}
+      <!-- No hint: a tooltip would close the card it sits in -->
+      <Button
+        variant="outline"
+        size="xs"
+        class="h-5 px-1.5 text-[11px] font-normal text-foreground"
+        icon={FileDiff}
+        onclick={() => app.openPull(pr)}
+      >
+        View changes
+      </Button>
+    {/if}
   </div>
   {#if pr.reviewers.length}
     <div class={cn('flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px]', icon && 'ml-5')}>

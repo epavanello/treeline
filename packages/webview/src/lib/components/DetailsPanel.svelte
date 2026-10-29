@@ -13,6 +13,7 @@
     GitCommitHorizontal,
     GitCompare,
     GitMerge,
+    GitPullRequest,
     Sparkles,
     List,
     LoaderCircle,
@@ -29,6 +30,7 @@
   import { cn } from '$lib/utils';
   import { fileTree, type Dir } from '$lib/fileTree';
   import { STATUS_COLOR, STATUS_LABEL } from '$lib/fileStatus';
+  import { pullRow } from '$lib/filters';
   import ActionMenu from './ActionMenu.svelte';
   import AuthorAvatar from './AuthorAvatar.svelte';
   import ChangeSummary from './ChangeSummary.svelte';
@@ -36,6 +38,8 @@
   import CopyField from './CopyField.svelte';
   import DiffStat from './DiffStat.svelte';
   import DiffView from './DiffView.svelte';
+  import PullCard from './PullCard.svelte';
+  import { PULL_STATE } from './PullBadge.svelte';
   import RefBadge from './RefBadge.svelte';
   import RefCard, { LEGEND, SUB } from './RefCard.svelte';
   import { laneColor } from './GraphSvg.svelte';
@@ -43,22 +47,31 @@
   const d = $derived(app.details);
   const branch = $derived(app.branchDiff);
   const wt = $derived(app.worktreePanel);
+  const pull = $derived(app.pullPanel);
   const comparing = $derived(!!app.compareWith && !!app.compareFiles);
   const files = $derived(
-    wt ? wt.files : branch ? branch.files : comparing ? app.compareFiles! : (d?.files ?? [])
+    pull
+      ? (pull.files ?? [])
+      : wt
+        ? wt.files
+        : branch
+          ? branch.files
+          : comparing
+            ? app.compareFiles!
+            : (d?.files ?? [])
   );
   /** Where the files live: another worktree's folder, or the repository the graph shows. */
   const repo = $derived(wt ? wt.worktree.path : app.repo);
-  const uncommitted = $derived(!wt && !branch && !comparing && app.selected?.hash === UNCOMMITTED);
+  const other = $derived(!!(pull || wt || branch || comparing));
+  const uncommitted = $derived(!other && app.selected?.hash === UNCOMMITTED);
   /** A commit's details, once loaded (not while another one's are still shown). */
   const commit = $derived(
-    !wt && !branch && !comparing && d && d.hash !== UNCOMMITTED && d.hash === app.selected?.hash
-      ? d
-      : null
+    !other && d && d.hash !== UNCOMMITTED && d.hash === app.selected?.hash ? d : null
   );
 
   /** The two revisions the file list is a diff between. */
   const range = $derived.by((): { from: string; to: string } => {
+    if (pull) return { from: pull.from, to: pull.to };
     if (wt) return { from: 'HEAD', to: UNCOMMITTED };
     if (branch) return { from: branch.mergeBase, to: UNCOMMITTED };
     const sel = app.selected!;
@@ -208,7 +221,12 @@
 <div class="flex h-full flex-col border-t bg-card text-[13px]" data-testid="details">
   <!-- What the panel shows, how big it is, how to look at it -->
   <div class="flex h-8 shrink-0 items-center gap-2 border-b px-3">
-    {#if wt}
+    {#if pull}
+      {@const s = PULL_STATE[pull.pr.state]}
+      <s.icon class="size-3.5 shrink-0 {s.class}" />
+      <span class="shrink-0 font-semibold">#{pull.pr.number}</span>
+      <span class="truncate text-muted-foreground">{pull.pr.title}</span>
+    {:else if wt}
       <FolderGit2 class="size-3.5 shrink-0" />
       <span class="truncate font-semibold">{folderName(wt.worktree.path)}</span>
       <span class="shrink-0 text-muted-foreground">uncommitted changes</span>
@@ -269,7 +287,53 @@
   >
     <Resizable.Pane defaultSize={app.view.detailsSplit} minSize={15} class="overflow-auto!">
       <div class="flex flex-col gap-3 p-3 select-text">
-        {#if wt}
+        {#if pull}
+          {@const pr = pull.pr}
+          {@const row = pullRow(pr, app.rows)}
+          {@const local = row?.local}
+          <dl class={LEGEND}>
+            <dt><GitPullRequest class="size-3.5" /></dt>
+            <dd><PullCard {pr} icon={false} view={false} /></dd>
+            <dt><GitBranch class="size-3.5" /></dt>
+            <dd>
+              <span class="font-mono text-[12px]">{pr.head}</span>
+              <span class="text-muted-foreground">into</span>
+              <span class="font-mono text-[12px]">{pr.base}</span>
+              <span class={SUB}>
+                {!local && row?.remote
+                  ? `only on the remote, as ${row.remote.ref.name}`
+                  : !local
+                    ? 'not on your machine: its head was fetched from GitHub'
+                    : local.hash === pr.headOid
+                      ? 'on your machine, as pushed'
+                      : `your ${local.ref.name} is at another commit: these are the changes GitHub has`}
+              </span>
+            </dd>
+            {#if pull.files}
+              <dt><GitMerge class="size-3.5" /></dt>
+              <dd>
+                {@render commitLink(pull.from)}
+                <span class={SUB}>
+                  the fork point from {pr.base}{pr.mergeOid ? ', before its merge' : ''}
+                </span>
+              </dd>
+              <dt><GitCommitHorizontal class="size-3.5" /></dt>
+              <dd>
+                {@render commitLink(pull.to)}
+                <span class={SUB}>its head</span>
+              </dd>
+            {:else}
+              <dt><LoaderCircle class="size-3.5 animate-spin" /></dt>
+              <dd class="text-xs text-muted-foreground">Loading its changes…</dd>
+            {/if}
+            <ClaudeSessions branches={[pr.head]} />
+            <dt><FileDiff class="size-3.5" /></dt>
+            <dd class="text-[12px] text-muted-foreground">
+              Diffs open on your working files when they match its head, so Go to Definition, errors
+              and links work.
+            </dd>
+          </dl>
+        {:else if wt}
           <!-- A worktree: its branch's card (the one its chip shows on hover) -->
           <div class="flex flex-col gap-2">
             <RefCard r={app.worktreeSummary(wt.worktree)} worktree={wt.worktree} files={false} />
@@ -506,7 +570,8 @@
                 {@render fileRow(f, depth, false)}
               {/each}
             {/snippet}
-            {#if app.view.files === 'diff' && repo}
+            <!-- A pull request's range is known once its head is here (it may be fetched first) -->
+            {#if app.view.files === 'diff' && repo && (!pull || pull.files)}
               <DiffView
                 {repo}
                 {...range}

@@ -63,6 +63,7 @@ describe('pull requests', () => {
     });
     expect(toPullRequest({ ...node, state: 'MERGED' }).state).toBe('merged');
     expect(toPullRequest({ ...node, isDraft: true }).state).toBe('draft');
+    expect(toPullRequest({ ...node, mergeCommit: { oid: 'def' } }).mergeOid).toBe('def');
   });
 
   it('asks gh, trying each of its accounts, then the editor', async () => {
@@ -70,7 +71,9 @@ describe('pull requests', () => {
     git('remote', 'set-url', 'origin', 'git@github.com:acme/shop.git');
     // A fake gh: the active account can't see acme/shop, the "work" one can
     const bin = mkdtempSync(join(tmpdir(), 'treeline-gh-'));
-    const answer = JSON.stringify({ data: { repository: { pullRequests: { nodes: [node] } } } });
+    const answer = JSON.stringify({
+      data: { viewer: { login: 'work' }, repository: { pullRequests: { nodes: [node] } } }
+    });
     writeFileSync(
       join(bin, 'gh'),
       `#!/bin/sh
@@ -84,7 +87,13 @@ esac
     chmodSync(join(bin, 'gh'), 0o755);
     const pulls = new Pulls(new Git(), async () => undefined, join(bin, 'gh'));
     const result = await pulls.get(dir);
-    expect(result).toMatchObject({ status: 'ok', via: 'gh', repo: 'acme/shop' });
+    expect(result).toMatchObject({
+      status: 'ok',
+      via: 'gh',
+      repo: 'acme/shop',
+      remote: 'origin',
+      viewer: 'work'
+    });
     expect(result.status === 'ok' && result.prs.map((p) => p.number)).toEqual([7]);
 
     // No gh at all: the editor's account, else nothing to read with

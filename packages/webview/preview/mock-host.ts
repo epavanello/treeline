@@ -14,30 +14,24 @@ import {
 } from '@treeline/shared';
 import fixture from './fixture.json';
 
-/** Pull requests to show on the demo branches (fixture.json has none: it isn't on GitHub). */
+/**
+ * Pull requests on the fixture's most recent branches (fixture.json has none: GitHub isn't asked),
+ * in every state the UI draws. `sam` is who is signed in.
+ */
 function demoPulls(): PullRequest[] {
-  const hash = (name: string) =>
-    [...fixture.graph.heads, ...fixture.graph.remoteHeads].find((r) => r.ref.name === name)?.hash ??
-    '';
   const now = Math.round(Date.now() / 1000);
-  const pr = (over: Partial<PullRequest> & Pick<PullRequest, 'number' | 'head' | 'title'>) => ({
-    url: `https://github.com/acme/shop/pull/${over.number}`,
-    state: 'open' as const,
-    author: 'sam',
-    updatedAt: now - 3 * 3600,
-    headOid: hash(over.head),
-    base: 'main',
-    decision: null,
-    reviewers: [],
-    threads: { resolved: 0, unresolved: 0 },
-    checks: 'passing' as const,
-    ...over
-  });
-  return [
-    pr({
-      number: 42,
-      head: 'feat/checkout-redesign',
-      title: 'Checkout redesign: one page, Apple Pay, saved cards',
+  const base = fixture.graph.compare?.base.replace(/^[^/]+\//, '') ?? 'main';
+  const seen = new Set<string>([base]);
+  const branches = [...fixture.graph.heads, ...fixture.graph.remoteHeads]
+    .sort((a, b) => b.date - a.date)
+    .map((r) => ({ name: r.ref.name.replace(/^origin\//, ''), hash: r.hash, date: r.date }))
+    .filter((b) => !seen.has(b.name) && !!seen.add(b.name));
+  // The checked-out branch's pull request comes third by date: the row puts it first
+  const current = branches.findIndex((b) => b.name === fixture.graph.currentBranch);
+  if (current > 2) branches.splice(2, 0, ...branches.splice(current, 1));
+  const looks: Partial<PullRequest>[] = [
+    {
+      author: 'sam',
       decision: 'changes',
       reviewers: [
         { login: 'maya', state: 'changes' },
@@ -45,33 +39,39 @@ function demoPulls(): PullRequest[] {
       ],
       threads: { resolved: 3, unresolved: 2 },
       checks: 'failing'
-    }),
-    pr({
-      number: 45,
-      head: 'feat/search-filters',
-      title: 'Search filters and price range',
-      state: 'draft',
-      author: 'leo',
-      checks: 'pending'
-    }),
-    pr({
-      number: 44,
-      head: 'fix/coupon-expiry',
-      title: 'Honour the coupon expiry timezone',
+    },
+    { state: 'draft', author: 'leo', checks: 'pending' },
+    {
       author: 'leo',
       decision: 'approved',
       reviewers: [{ login: 'sam', state: 'approved' }],
       threads: { resolved: 1, unresolved: 0 }
-    }),
-    pr({
-      number: 38,
-      head: 'fix/cart-rounding',
-      title: 'Round cart totals per line',
-      state: 'merged',
-      updatedAt: now - 5 * 86400,
-      checks: null
-    })
+    },
+    { author: 'maya', decision: 'required', reviewers: [{ login: 'sam', state: 'requested' }] },
+    { state: 'merged', author: 'sam', checks: null },
+    { author: 'sam', decision: 'approved', reviewers: [{ login: 'maya', state: 'approved' }] },
+    { state: 'closed', author: 'leo', checks: null },
+    { author: 'maya', threads: { resolved: 0, unresolved: 4 } }
   ];
+  return branches.slice(0, looks.length).map((b, i) => ({
+    number: 120 - i * 3,
+    title: b.name
+      .replace(/^[a-z]+\//, '')
+      .replace(/[-_]/g, ' ')
+      .replace(/^./, (c) => c.toUpperCase()),
+    url: `https://github.com/acme/shop/pull/${120 - i * 3}`,
+    state: 'open',
+    author: 'sam',
+    updatedAt: Math.min(now - 3600 * (i + 1), b.date + 3600),
+    head: b.name,
+    headOid: b.hash,
+    base,
+    decision: null,
+    reviewers: [],
+    threads: { resolved: 0, unresolved: 0 },
+    checks: 'passing',
+    ...looks[i]
+  }));
 }
 
 /** `?slow`: the graph takes a while to load, as in a big repository (to see the loading states). */
@@ -195,7 +195,19 @@ const summaries = new Map<string, string>();
       }
       case 'getPullRequests':
       case 'connectGitHub':
-        return reply(id, { status: 'ok', via: 'gh', repo: 'acme/shop', prs: demoPulls() });
+        return reply(id, {
+          status: 'ok',
+          via: 'gh',
+          repo: 'acme/shop',
+          remote: 'origin',
+          viewer: 'sam',
+          prs: demoPulls()
+        });
+      case 'pullRange': {
+        // As if fetched: from the fixture's fork point to its head (whose patch is recorded)
+        const pr = args[2] as PullRequest;
+        return reply(id, { from: fixture.graph.compare?.mergeBase ?? '', to: pr.headOid }, 400);
+      }
       case 'getRepoView':
         return reply(id, repoView);
       case 'setRepoView':
