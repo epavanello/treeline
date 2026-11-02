@@ -140,6 +140,7 @@ describe('worktree filters', () => {
     head: 'h',
     headDate: NOW - DAY,
     headSubject: '',
+    created: null,
     main: false,
     current: false,
     locked: false,
@@ -173,6 +174,10 @@ describe('worktree filters', () => {
     expect(matches(wt({}), { state: 'merged' }, 1)).toBe(false);
     expect(matches(wt({ main: true }), { state: 'merged' }, 0)).toBe(false);
     expect(matches(wt({ headDate: NOW - 40 * DAY }), { state: 'stale' })).toBe(true);
+    // Made today on an old branch: not stale
+    expect(matches(wt({ headDate: NOW - 40 * DAY, created: NOW - 600 }), { state: 'stale' })).toBe(
+      false
+    );
     expect(matches(wt({ branch: 'theirs' }), { owner: 'mine' })).toBe(false);
     expect(matches(wt({}), { owner: 'mine' })).toBe(true);
   });

@@ -15,6 +15,7 @@
     CLEANUP,
     DEFAULT_WORKTREE_FILTER,
     isDisposable,
+    lastActive,
     owner,
     pullsOf,
     removable,
@@ -44,7 +45,7 @@
   const all = $derived(
     [...(app.data?.worktrees ?? [])].sort(
       (a, b) =>
-        +b.current - +a.current || +b.main - +a.main || (b.headDate ?? 0) - (a.headDate ?? 0)
+        +b.current - +a.current || +b.main - +a.main || (lastActive(b) ?? 0) - (lastActive(a) ?? 0)
     )
   );
   const f = $derived(app.worktreeFilter);
@@ -228,9 +229,9 @@
                 {#if isDisposable(w, app.worktreeDetails[w.path] ?? undefined, app.filterContext)}
                   <Recycle class="size-3.5 shrink-0 text-muted-foreground" />
                 {/if}
-                {#if w.headDate}
+                {#if lastActive(w)}
                   <span class="shrink-0 text-muted-foreground tabular-nums"
-                    >{since(w.headDate)}</span
+                    >{since(lastActive(w)!)}</span
                   >
                 {/if}
               </button>

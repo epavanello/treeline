@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.12.0
+
+- A worktree's age on its chip counts from when you made it, not only from its branch's last commit:
+  a worktree made today on a branch last touched last week says today, sorts first and isn't stale.
+  Its card says when it was made
+- Hovering a branch or a worktree shows how many Claude sessions it has: click to list them, one
+  more click to continue one
+- A remote branch's Claude sessions are found the same way everywhere: through its local copy when
+  it has one
+
 ## 0.11.0
 
 - Without Claude Code installed, nothing about Claude shows: no Summarize buttons, and the ✨ commit

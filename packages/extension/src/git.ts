@@ -3,8 +3,8 @@
  * against a real temporary repository.
  */
 import { execFile } from 'node:child_process';
-import { open, realpath } from 'node:fs/promises';
-import { resolve as resolvePath } from 'node:path';
+import { open, realpath, stat } from 'node:fs/promises';
+import { join, resolve as resolvePath } from 'node:path';
 import {
   UNCOMMITTED,
   type BranchAuthor,
@@ -558,6 +558,7 @@ export class Git {
         prunable: f.has('prunable'),
         headDate: null,
         headSubject: null,
+        created: null,
         status: null
       }));
     // Every worktree shares the object database: one call dates all their commits
@@ -578,6 +579,16 @@ export class Git {
       worktrees
         .filter((w) => !w.prunable)
         .map(async (w) => (w.status = await this.try(this.worktreeStatus(w.path), null)))
+    );
+    // A linked worktree's `.git` is a file `git worktree add` writes once: its birth time is when the
+    // worktree was made (where the file system keeps none, its last change: written only by repairs)
+    await Promise.all(
+      worktrees
+        .filter((w) => !w.main && !w.prunable)
+        .map(async (w) => {
+          const s = await this.try(stat(join(w.path, '.git')), null);
+          if (s) w.created = Math.floor((s.birthtimeMs || s.mtimeMs) / 1000);
+        })
     );
     return worktrees;
   }

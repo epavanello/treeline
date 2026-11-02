@@ -55,7 +55,7 @@ import {
   Trash2,
   Undo2
 } from '@lucide/svelte';
-import { app } from './app.svelte';
+import { app, sessionDetail } from './app.svelte';
 import type { Hint } from './components/Tip.svelte';
 import { isBase, primary, pullRow, pullsOf } from './filters';
 import { host } from './rpc';
@@ -272,7 +272,7 @@ export function menuItems(target: MenuTarget, pulls = true): MenuItem[] {
           },
           ...deleteItems(ref),
           ...when(pulls, pullItems(ref)),
-          ...claudeItems(app.rowOf.get(ref.name)?.local?.ref.name ?? local),
+          ...claudeItems(app.sessionBranch(ref)),
           sep,
           { label: 'Copy Branch Name', icon: Copy, run: copy(ref.name) }
         ];
@@ -649,25 +649,10 @@ function stashItems(commit: Commit, selector: string): MenuItem[] {
 function claudeItems(branch: string | null | undefined, worktree?: Worktree): MenuItem[] {
   const sessions = app.sessionsOf(branch, worktree);
   if (!sessions.length) return [];
-  const date = (t: number) =>
-    new Date(t * 1000).toLocaleString(undefined, {
-      day: 'numeric',
-      month: 'short',
-      year: new Date(t * 1000).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
   const item = ({ s, why }: (typeof sessions)[number], muted = false): MenuItem => ({
     label: s.title,
     muted,
-    detail: [
-      why,
-      `last message ${date(s.active)}`,
-      s.prompts && `${s.prompts} message${s.prompts === 1 ? '' : 's'}`,
-      s.desktopId ? 'desktop app' : 'terminal'
-    ]
-      .filter(Boolean)
-      .join(' · '),
+    detail: sessionDetail(s, why),
     icon: BotMessageSquare,
     run: () => host.resumeClaudeSession(s),
     hint: {

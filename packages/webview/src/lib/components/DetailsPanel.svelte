@@ -346,14 +346,18 @@
         {:else if wt}
           <!-- A worktree: its branch's card (the one its chip shows on hover) -->
           <div class="flex flex-col gap-2">
-            <RefCard r={app.worktreeSummary(wt.worktree)} worktree={wt.worktree} files={false} />
+            <RefCard
+              r={app.worktreeSummary(wt.worktree)}
+              worktree={wt.worktree}
+              files={false}
+              rememberSessions
+            />
           </div>
           <dl class={LEGEND}>
             {#if app.claude}
               <dt><Sparkles class="size-3.5" /></dt>
               <dd><ChangeSummary repo={wt.worktree.path} rev={null} version={wt.files} /></dd>
             {/if}
-            <ClaudeSessions branches={[wt.worktree.branch]} worktree={wt.worktree} />
             <dt><GitCommitHorizontal class="size-3.5" /></dt>
             <dd>
               {@render commitLink(wt.worktree.head)}
@@ -509,9 +513,7 @@
               branches={refs
                 .filter((r) => r.kind === 'head' || r.kind === 'remote')
                 .filter((r) => r.name !== app.data?.compare?.base)
-                .map((r) =>
-                  r.kind === 'remote' ? r.name.slice((r.remote?.length ?? -1) + 1) : r.name
-                )
+                .map((r) => app.sessionBranch(r))
                 .filter((n) => !app.data?.compare?.base?.endsWith(`/${n}`))}
             />
           </dl>

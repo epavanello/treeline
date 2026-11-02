@@ -58,6 +58,12 @@ export const CLEANUP = {
 /** No commit for this long: stale. */
 export const STALE = 30 * 86400;
 
+/**
+ * When a worktree was last worked on: its latest commit, or when it was made if that's later (a
+ * worktree made today on a branch last committed to last week is today's).
+ */
+export const lastActive = (w: Worktree) => Math.max(w.headDate ?? 0, w.created ?? 0) || null;
+
 type User = GraphData['user'];
 
 /**
@@ -252,7 +258,7 @@ export function worktreeMatches(
     case 'disposable':
       return isDisposable(w, d, ctx);
     case 'stale':
-      return !!w.headDate && ctx.now - w.headDate > STALE;
+      return !!lastActive(w) && ctx.now - lastActive(w)! > STALE;
   }
   return true;
 }

@@ -486,6 +486,29 @@ class App {
     return out.sort((a, b) => +a.s.archived - +b.s.archived);
   }
 
+  /** `sessionsOf` for several branches (a commit that's the tip of a few), each session once. */
+  sessionsFor(branches: (string | null | undefined)[], worktree?: Worktree) {
+    const seen = new Map<string, { s: ClaudeSession; why: string }>();
+    for (const b of branches.length ? branches : [null])
+      for (const x of this.sessionsOf(b, worktree)) if (!seen.has(x.s.id)) seen.set(x.s.id, x);
+    return [...seen.values()].sort(
+      (a, b) => +a.s.archived - +b.s.archived || b.s.active - a.s.active
+    );
+  }
+
+  /**
+   * The branch name sessions know a ref by (Claude Code records the local one): a remote branch's
+   * local copy, else its name without the remote. Tags and stashes have none.
+   */
+  sessionBranch(ref: Ref) {
+    if (ref.kind === 'head') return ref.name;
+    if (ref.kind !== 'remote') return null;
+    return (
+      this.rowOf.get(ref.name)?.local?.ref.name ??
+      (ref.remote ? ref.name.slice(ref.remote.length + 1) : ref.name)
+    );
+  }
+
   /** Signs in with the editor's GitHub account (it asks for consent), then shows them. */
   async connectGitHub() {
     const repo = this.repo;
@@ -895,3 +918,24 @@ class App {
 }
 
 export const app = new App();
+
+/** When a session's last message was: day and time, the year only when it isn't this one. */
+export const sessionDate = (t: number) =>
+  new Date(t * 1000).toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: new Date(t * 1000).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+/** A session's line under its title, in the panel and in menus: why, when, how long, where it opens. */
+export const sessionDetail = (s: ClaudeSession, why: string) =>
+  [
+    why,
+    `last message ${sessionDate(s.active)}`,
+    s.prompts && `${s.prompts} message${s.prompts === 1 ? '' : 's'}`,
+    s.desktopId ? 'desktop app' : 'terminal'
+  ]
+    .filter(Boolean)
+    .join(' · ');

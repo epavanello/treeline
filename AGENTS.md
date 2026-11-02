@@ -47,7 +47,8 @@ branch with main, review diffs with working language features, juggle worktrees 
    action, chips scrolling under a fade, wheel scrolls sideways) list the worktrees (`WorktreeStrip`: click
    opens its uncommitted changes in the details panel via `app.openWorktree()` (`worktreePanel`; diffs
    run with `repo` = that worktree's folder), `app.reveal()` jumps to a commit loading more history if needed; double-click opens;
-   right-click `worktreeItems()` in `menus.ts`), the local branches and the tags (`RefStrip`, from
+   right-click `worktreeItems()` in `menus.ts`; its age is `lastActive()`, the later of its HEAD's
+   commit and `Worktree.created`: the birth time of the `.git` file `git worktree add` writes), the local branches and the tags (`RefStrip`, from
    `GraphData.heads/tags`, most recent first; local branches only, to keep the team's noise out). The toolbar's
    `BranchPicker` covers every branch (`heads` + `remoteHeads`). Branch chips, picker rows and graph badges
    share `BranchState` (`RefSummary.vsBase`: ahead/behind the compare base by hash, one
@@ -120,7 +121,9 @@ branch with main, review diffs with working language features, juggle worktrees 
    the details panel (`ClaudeSessions`: collapsed to a count, its open state shared by every panel; the
    worktree's, the base diff's, and a commit's for the branches it's the tip of) and in the
    branch/worktree menus (`claudeItems`: one submenu, archived ones under a heading, dimmed; a submenu
-   inside a submenu opens behind it). Not in the hover cards. Resuming
+   inside a submenu opens behind it), and in `RefCard` (hover cards collapsed too, opened for that card only;
+   the worktree's panel card remembers it like the rest). One source: `app.sessionsFor` (several branches, deduped),
+   `app.sessionBranch(ref)` (the local name sessions record), `sessionDetail`/`sessionDate`. Resuming
    (`resumeClaudeSession` in `actions.ts`): a desktop session opens with `claude://claude.ai/epitaxy/<local_id>`
    (the link the app's own sidebar uses; `claude://code/continue?session=` skips archived ones), any other
    runs `claude --resume <id>` in a terminal in its folder (Claude Code finds sessions by folder).

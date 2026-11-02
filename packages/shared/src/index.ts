@@ -270,6 +270,11 @@ export interface Worktree {
   /** The commit it's on: committer date (Unix seconds) and subject; null when unknown. */
   headDate: number | null;
   headSubject: string | null;
+  /**
+   * When `git worktree add` made it (Unix seconds): the birth time of the `.git` file it writes in
+   * the folder (git records no date). Null for the main worktree and when unknown.
+   */
+  created: number | null;
   /** The main working tree, the one that owns the `.git` directory. */
   main: boolean;
   /** The worktree the graph is showing. */

@@ -253,7 +253,13 @@ describe('compare with a base branch', () => {
 describe('worktrees', () => {
   it('lists the main worktree with its status', async () => {
     const [main] = await git.getWorktrees(dir);
-    expect(main).toMatchObject({ branch: 'main', main: true, current: true, prunable: false });
+    expect(main).toMatchObject({
+      branch: 'main',
+      main: true,
+      current: true,
+      prunable: false,
+      created: null
+    });
     expect(main.headSubject).toBe('Main after topic');
     expect(main.headDate).toBe(1_700_000_000 + 8 * 60);
     expect(main.status).toEqual({ changes: 2, ahead: 0, behind: 0, upstream: null });
@@ -271,6 +277,8 @@ describe('worktrees', () => {
 
     const [, linked] = await git.getWorktrees(dir);
     expect(linked).toMatchObject({ branch: 'topic', main: false, current: false });
+    // Made just now, though its branch's last commit is from 2023
+    expect(Math.abs(linked.created! - Date.now() / 1000)).toBeLessThan(60);
     expect(linked.status).toEqual({ changes: 3, ahead: 1, behind: 0, upstream: 'origin/main' });
 
     const g = await git.getGraph(query());

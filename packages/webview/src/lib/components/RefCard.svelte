@@ -26,6 +26,7 @@
   import { cn } from '$lib/utils';
   import AuthorStack from './AuthorStack.svelte';
   import BranchState from './BranchState.svelte';
+  import ClaudeSessions from './ClaudeSessions.svelte';
   import CopyField from './CopyField.svelte';
   import PullBadge from './PullBadge.svelte';
   import PullCard from './PullCard.svelte';
@@ -40,13 +41,16 @@
     r,
     footer,
     worktree: w,
-    files = true
+    files = true,
+    rememberSessions = false
   }: {
     r: RefSummary;
     footer?: string;
     worktree?: Worktree;
     /** List a worktree's uncommitted files (not where they're listed beside it). */
     files?: boolean;
+    /** Its Claude sessions opened as the rest of the details panel has them (not just in this card). */
+    rememberSessions?: boolean;
   } = $props();
 
   const STALE = 30 * 86400;
@@ -266,6 +270,14 @@
     </dd>
   {/if}
 
+  {#if ref.kind !== 'tag'}
+    <ClaudeSessions
+      branches={[w ? w.branch : app.sessionBranch(ref)]}
+      worktree={w}
+      remember={rememberSessions}
+    />
+  {/if}
+
   {#if own}
     {@const share = (n: number) => `${Math.round((100 * n) / total)}%`}
     <dt>
@@ -339,7 +351,14 @@
 
   {#if w || ref.worktree}
     <dt><FolderGit2 class="size-3.5" /></dt>
-    <dd><CopyField value={w?.path ?? ref.worktree!} what="folder path" /></dd>
+    <dd>
+      <CopyField value={w?.path ?? ref.worktree!} what="folder path" />
+      {#if w?.created}
+        <span class={SUB}>
+          worktree made {ago(w.created)} · {new Date(w.created * 1000).toLocaleString()}
+        </span>
+      {/if}
+    </dd>
   {/if}
 </dl>
 {#if footer}<p class="border-t pt-1.5 text-[11px] text-muted-foreground">{footer}</p>{/if}
