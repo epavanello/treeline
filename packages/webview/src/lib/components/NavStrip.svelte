@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { ListFilter, LoaderCircle } from '@lucide/svelte';
+  import { ListFilter, LoaderCircle, X } from '@lucide/svelte';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { cn } from '$lib/utils';
@@ -10,7 +10,8 @@
    * A horizontally scrolling row of chips under the toolbar (worktrees, branches, tags). The title, its
    * count, its filter and its action (+) stay pinned in a fixed-width cell of four columns, so every
    * row's chips start at the same place, its icons line up, and the chips scroll under it through a fade. With no items it says so.
-   * With a `filter`, the title opens it, and the count reads "shown/all" while it hides some.
+   * With a `filter`, the title opens it, and the count reads "shown/all" while it hides some. Its
+   * text, when set, leads the chips with a button to clear it.
    */
   let {
     label,
@@ -19,7 +20,8 @@
     empty,
     children,
     action,
-    filter
+    filter,
+    query
   }: {
     label: string;
     count: number;
@@ -37,6 +39,8 @@
       loading?: boolean;
       hint: Hint;
     };
+    /** The filter's text, and how to clear it. */
+    query?: { text: string; clear: () => void };
   } = $props();
 
   // A plain vertical mouse wheel scrolls the row sideways
@@ -102,6 +106,18 @@
     <span class="flex justify-center">{@render action?.()}</span>
   </span>
   <div class="flex items-center gap-1.5">
+    {#if query?.text.trim()}
+      <Button
+        variant="secondary"
+        size="xs"
+        class="h-5 max-w-60 gap-1 rounded-full px-2 text-xs font-normal"
+        hint="Stop filtering by this text"
+        onclick={query.clear}
+      >
+        <span class="truncate">“{query.text.trim()}”</span>
+        <X class="size-3" />
+      </Button>
+    {/if}
     {#if shown}
       {@render children()}
     {:else}

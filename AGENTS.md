@@ -66,7 +66,8 @@ branch with main, review diffs with working language features, juggle worktrees 
    remote only, crossed = local only (warning color when `upstream.gone`).
    **Row filters** (`filters.ts`, pure and unit-tested; state in `app.branchFilter/worktreeFilter`, persisted
    with the webview state): the Branches and Worktrees titles open a `FilterMenu` (scope local/remote/both,
-   owner, state). They filter the chips only, never the graph. The cleanup states (`CLEANUP`) add a
+   owner, state; Pull Requests too), topped by a search field (`text`, `textMatches`: every word in a
+   name, case aside; shown as a chip in the row, never persisted). They filter the chips only, never the graph. The cleanup states (`CLEANUP`) add a
    "Delete N" / "Remove N" button running `deleteBranches` / `removeWorktrees`: one modal for the lot,
    saying what would be lost; `deletable()` / `removable()` keep the base, checked-out branches, the
    main and current worktrees out. **Branch details** (`getBranchDetails` → `Git.branchDetails`): the

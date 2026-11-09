@@ -67,6 +67,7 @@
   <FilterMenu
     value={f}
     onchange={(patch) => app.setWorktreeFilter(patch)}
+    search="Folder or branch…"
     onreset={() => app.setWorktreeFilter(DEFAULT_WORKTREE_FILTER)}
     groups={[
       {
@@ -123,6 +124,7 @@
     {#snippet children(open)}
       <NavStrip
         label="Worktrees"
+        query={{ text: f.text, clear: () => app.setWorktreeFilter({ text: '' }) }}
         count={all.length}
         shown={worktrees.length}
         empty={all.length ? 'No worktrees match the filter' : 'No worktrees'}
@@ -132,7 +134,7 @@
           loading: f.owner === 'mine' ? app.loadingBranchDetails : false,
           hint: {
             title: 'Filter the worktrees',
-            body: 'Yours, ones with work in progress, clean ones, merged ones or ones left alone for a month: and, for the last three, a button to remove them all.',
+            body: 'By folder or branch, yours, ones with work in progress, clean ones, merged ones or ones left alone for a month: and, for the last three, a button to remove them all.',
             note: active ? 'Filtered: click to change or reset.' : undefined
           }
         }}

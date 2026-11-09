@@ -622,9 +622,10 @@ class App {
       showStashes: this.showStashes,
       showWorktrees: this.showWorktrees,
       base: this.base,
-      branchFilter: this.branchFilter,
-      worktreeFilter: this.worktreeFilter,
-      pullFilter: this.pullFilter
+      // The text filters are a lookup of the moment: never reopen with chips hidden by one
+      branchFilter: { ...this.branchFilter, text: '' },
+      worktreeFilter: { ...this.worktreeFilter, text: '' },
+      pullFilter: { ...this.pullFilter, text: '' }
     });
   }
 
@@ -638,9 +639,9 @@ class App {
     this.showStashes = saved?.showStashes ?? true;
     this.showWorktrees = saved?.showWorktrees ?? true;
     this.base = saved?.base ?? null;
-    this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter };
-    this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter };
-    this.pullFilter = { ...DEFAULT_PULL_FILTER, ...saved?.pullFilter };
+    this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter, text: '' };
+    this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter, text: '' };
+    this.pullFilter = { ...DEFAULT_PULL_FILTER, ...saved?.pullFilter, text: '' };
     this.sentView = JSON.stringify(this.repoView());
   }
 

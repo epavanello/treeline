@@ -114,6 +114,14 @@ describe('branch filters', () => {
     expect(names({ owner: 'mine', state: 'merged', scope: 'remote' })).toEqual([]);
   });
 
+  it('finds branches by name, every word, case aside, on either copy', () => {
+    expect(names({ text: 'MIN' })).toEqual(['mine']);
+    expect(names({ text: '  origin/team ', scope: 'all' })).toEqual(['origin/team']);
+    expect(names({ text: 'origin/main' })).toEqual(['main']);
+    expect(names({ text: 'm e' })).toEqual(['mine', 'merged']);
+    expect(names({ text: 'nothing' })).toEqual([]);
+  });
+
   it('finds the pull requests opened from a branch', () => {
     const row = branchRows(data).find((r) => r.local?.ref.name === 'mine')!;
     expect(pullsOf(row, ctx.pulls).map((p) => p.head)).toEqual(['mine']);
@@ -165,6 +173,12 @@ describe('worktree filters', () => {
       { compare: compare(ahead), files: [], kept },
       ctx
     );
+
+  it('finds worktrees by folder or branch', () => {
+    expect(matches(wt({ path: '/repos/treeline-fix' }), { text: 'fix' })).toBe(true);
+    expect(matches(wt({}), { text: 'MINE' })).toBe(true);
+    expect(matches(wt({ branch: null }), { text: 'mine' })).toBe(false);
+  });
 
   it('tells work in progress, clean, merged and stale worktrees apart', () => {
     const dirty = wt({ status: { changes: 2, ahead: 0, behind: 0, upstream: null } });
@@ -226,6 +240,13 @@ describe('pull request filters', () => {
     prs
       .filter((pr) => pullMatches(pr, { ...DEFAULT_PULL_FILTER, ...f }, 'ada', rows))
       .map((pr) => pr.number);
+
+  it('finds pull requests by number, title, branch or author', () => {
+    expect(shown({ text: '#2' })).toEqual([2]);
+    expect(shown({ text: 'team' })).toEqual([2]);
+    expect(shown({ text: 'bob', state: 'any' })).toEqual([2, 3, 4, 6]);
+    expect(shown({ text: 'pr-5', state: 'any' })).toEqual([]);
+  });
 
   it('shows the open ones, drafts included, by default', () => {
     expect(shown()).toEqual([1, 2, 3, 4]);

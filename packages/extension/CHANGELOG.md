@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0
+
+- The Branches, Worktrees and Pull Requests filters have a search field: paste a branch name (or a
+  folder, a pull request's number, title or author) and the row shows only what matches, ready to
+  hover or click for its Claude sessions. The search shows as a chip in the row, one click clears it,
+  and it isn't remembered once the panel closes
+
 ## 0.12.0
 
 - A worktree's age on its chip counts from when you made it, not only from its branch's last commit:

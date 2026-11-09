@@ -80,6 +80,7 @@
   <FilterMenu
     value={f}
     onchange={(patch) => app.setBranchFilter(patch)}
+    search="Branch name…"
     onreset={() => app.setBranchFilter(DEFAULT_BRANCH_FILTER)}
     groups={[
       {
@@ -150,6 +151,9 @@
     {#snippet children(open)}
       <NavStrip
         label={kind === 'heads' ? 'Branches' : 'Tags'}
+        query={kind === 'heads'
+          ? { text: f.text, clear: () => app.setBranchFilter({ text: '' }) }
+          : undefined}
         count={all.length}
         shown={filtered.length}
         empty={kind === 'tags'
@@ -166,7 +170,7 @@
               loading: app.loadingBranchDetails,
               hint: {
                 title: 'Filter the branches',
-                body: "Local or remote ones, yours, merged ones, ones gone from the remote or left alone for a month. It filters this row only: the graph's branches are picked in the toolbar.",
+                body: "By name (paste one), local or remote ones, yours, merged ones, ones gone from the remote or left alone for a month. It filters this row only: the graph's branches are picked in the toolbar.",
                 note: app.branchProgress
                   ? `Working out owners and merged state: ${app.branchProgress.done} of ${app.branchProgress.total} branches…`
                   : active

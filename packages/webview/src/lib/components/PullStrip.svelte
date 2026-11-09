@@ -53,6 +53,7 @@
   <FilterMenu
     value={f}
     onchange={(patch) => app.setPullFilter(patch)}
+    search="Number, title, branch, author…"
     onreset={() => app.setPullFilter({ ...DEFAULT_PULL_FILTER, state: 'any' })}
     groups={[
       {
@@ -133,6 +134,7 @@
     {#snippet children(open)}
       <NavStrip
         label="Pull Requests"
+        query={{ text: f.text, clear: () => app.setPullFilter({ text: '' }) }}
         count={all.length}
         shown={filtered.length}
         empty={!ok
@@ -146,7 +148,7 @@
               active,
               hint: {
                 title: 'Filter the pull requests',
-                body: 'Yours or waiting for your review, by state, with their branch on your machine, or waiting on their author. It filters this row only.',
+                body: 'By number, title, branch or author, yours or waiting for your review, by state, with their branch on your machine, or waiting on their author. It filters this row only.',
                 note: `The ${all.length} most recently updated on GitHub.${active ? ' Filtered: click to change or reset.' : ''}`
               }
             }

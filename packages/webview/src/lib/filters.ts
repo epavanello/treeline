@@ -17,19 +17,24 @@ export interface BranchFilter {
   scope: 'local' | 'remote' | 'all';
   owner: 'anyone' | 'mine';
   state: 'any' | 'merged' | 'unmerged' | 'gone' | 'stale';
+  /** Words its name must contain (see `textMatches`). */
+  text: string;
 }
 
 export interface WorktreeFilter {
   owner: 'anyone' | 'mine';
   state: 'any' | 'changes' | 'clean' | 'merged' | 'disposable' | 'stale';
+  /** Words its folder or branch must contain. */
+  text: string;
 }
 
 export const DEFAULT_BRANCH_FILTER: BranchFilter = {
   scope: 'local',
   owner: 'anyone',
-  state: 'any'
+  state: 'any',
+  text: ''
 };
-export const DEFAULT_WORKTREE_FILTER: WorktreeFilter = { owner: 'anyone', state: 'any' };
+export const DEFAULT_WORKTREE_FILTER: WorktreeFilter = { owner: 'anyone', state: 'any', text: '' };
 
 export interface PullFilter {
   /** Opened by you, or asking you for a review. */
@@ -40,14 +45,28 @@ export interface PullFilter {
   branch: 'anywhere' | 'local';
   /** Waiting on its author: changes requested, checks failing, conversations open. */
   needs: 'anything' | 'work';
+  /** Words its number, title, branch or author must contain. */
+  text: string;
 }
 
 export const DEFAULT_PULL_FILTER: PullFilter = {
   owner: 'anyone',
   state: 'open',
   branch: 'anywhere',
-  needs: 'anything'
+  needs: 'anything',
+  text: ''
 };
+
+/**
+ * A row's text filter: every word of `query` (case aside) appears in one of `fields`. An empty
+ * query lets everything through. Pasting a whole branch name finds that branch.
+ */
+export function textMatches(query: string, ...fields: (string | null | undefined)[]) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = fields.filter(Boolean).map((f) => f!.toLowerCase());
+  return words.every((w) => hay.some((h) => h.includes(w)));
+}
 
 /** States whose chips are cleanup candidates: the row offers to delete or remove them all. */
 export const CLEANUP = {
@@ -166,6 +185,7 @@ export const needsWork = (pr: PullRequest) =>
 
 /** `viewer`: the GitHub login they were read with. */
 export function pullMatches(pr: PullRequest, f: PullFilter, viewer: string, rows: BranchRow[]) {
+  if (!textMatches(f.text, `#${pr.number}`, pr.title, pr.head, pr.author)) return false;
   if (f.owner === 'mine' && pr.author !== viewer) return false;
   if (
     f.owner === 'review' &&
@@ -199,6 +219,7 @@ const sides = (row: BranchRow) => [row.local, row.remote].filter((r) => !!r);
 export function branchMatches(row: BranchRow, f: BranchFilter, ctx: Context) {
   if (f.scope === 'local' && !row.local) return false;
   if (f.scope === 'remote' && row.local) return false;
+  if (!textMatches(f.text, row.local?.ref.name, row.remote?.ref.name)) return false;
   const p = primary(row);
   if (f.owner === 'mine' && !isMine(ctx.details[p.ref.name], ctx.user)) return false;
   switch (f.state) {
@@ -247,6 +268,7 @@ export function worktreeMatches(
   d: WorktreeDetails | undefined,
   ctx: Context
 ) {
+  if (!textMatches(f.text, w.path, w.branch)) return false;
   if (f.owner === 'mine' && !(w.branch && isMine(ctx.details[w.branch], ctx.user))) return false;
   switch (f.state) {
     case 'changes':
