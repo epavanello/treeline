@@ -1,9 +1,9 @@
 <script lang="ts">
   import { since, type RefSummary } from '@treeline/shared';
-  import { Check, ChevronDown, Cloud, Eye, EyeOff, FolderGit2, GitBranch } from '@lucide/svelte';
+  import { Check, ChevronDown, Cloud, Eye, EyeOff, FolderGit2, GitBranch, X } from '@lucide/svelte';
   import { mergeProps } from 'svelte-toolbelt';
   import { app } from '$lib/app.svelte';
-  import { owner } from '$lib/filters';
+  import { owner, type RuleCriteria } from '$lib/filters';
   import { menuItems, refCommit } from '$lib/menus';
   import { Button } from '$lib/components/ui/button';
   import * as Command from '$lib/components/ui/command';
@@ -27,10 +27,13 @@
   ]);
   // Shown (ticked) and hidden branches come first, in their own sections
   const groups = $derived([
-    { heading: 'Shown', items: all.filter((r) => app.branches.includes(r.ref.name)) },
+    {
+      heading: app.rule ? 'In the graph' : 'Shown',
+      items: all.filter((r) => app.branches.includes(r.ref.name))
+    },
     { heading: 'Hidden', items: all.filter((r) => app.hidden.includes(r.ref.name)) },
     ...(['head', 'remote'] as const).map((kind) => ({
-      heading: kind === 'head' ? 'Local' : 'Remote',
+      heading: `${kind === 'head' ? 'Local' : 'Remote'}${app.rule ? ', not in the graph' : ''}`,
       items: all.filter(
         (r) =>
           r.ref.kind === kind &&
@@ -39,18 +42,115 @@
       )
     }))
   ]);
-  const label = $derived(
-    [
-      app.branches.length === 0
-        ? 'Show All'
-        : app.branches.length === 1
-          ? app.branches[0]
-          : `${app.branches.length} shown`,
-      app.hidden.length && `${app.hidden.length} hidden`
-    ]
-      .filter(Boolean)
-      .join(' · ')
+  /**
+   * The filters on top: criteria combined (each group one choice, "Any" = not set), or "Like a row":
+   * that row's own filter. Either drives the ticked branches, kept up to date (see `app.rule`).
+   */
+  const github = $derived(app.pulls?.status === 'ok');
+  const criteria = $derived(app.rule && !('follow' in app.rule) ? app.rule : {});
+  const follow = $derived(app.rule && 'follow' in app.rule ? app.rule.follow : null);
+  type Pill = { value?: string; label: string; hint?: string; disabled?: boolean };
+  const GROUPS: { key: keyof RuleCriteria; label: string; pills: Pill[] }[] = $derived([
+    {
+      key: 'owner',
+      label: 'Whose',
+      pills: [
+        { label: 'Anyone' },
+        { value: 'mine', label: 'Mine', hint: 'Branches whose own commits are mostly yours.' }
+      ]
+    },
+    {
+      key: 'state',
+      label: 'State',
+      pills: [
+        { label: 'Any' },
+        {
+          value: 'unmerged',
+          label: 'Not merged',
+          hint: "Changes the compare base doesn't have yet."
+        },
+        {
+          value: 'merged',
+          label: 'Merged',
+          hint: 'All its changes are in the compare base, or its pull request was merged.'
+        },
+        { value: 'stale', label: 'Stale', hint: 'No commit for 30 days.' }
+      ]
+    },
+    {
+      key: 'pull',
+      label: 'Pull request',
+      pills: [
+        { label: 'Any' },
+        ...[
+          { value: 'open', label: 'Open', hint: 'It has an open pull request (drafts too).' },
+          { value: 'mine', label: 'Mine', hint: 'It has an open pull request you opened.' },
+          {
+            value: 'review',
+            label: 'To review',
+            hint: 'Its pull request asks you for a review.'
+          },
+          {
+            value: 'work',
+            label: 'Needs work',
+            hint: 'Its pull request has changes requested, failing checks or open conversations.'
+          }
+        ].map((p) => ({
+          ...p,
+          disabled: !github,
+          hint: github ? p.hint : `${p.hint} Connect GitHub (Pull Requests row) first.`
+        }))
+      ]
+    }
+  ]);
+  const ROWS = [
+    {
+      value: 'branches',
+      label: 'Branches',
+      hint: 'The branches the Branches row shows: change its filter there and the graph follows.'
+    },
+    {
+      value: 'pulls',
+      label: 'Pull Requests',
+      hint: "The branches of the pull requests the Pull Requests row shows, with that row's filter."
+    },
+    {
+      value: 'worktrees',
+      label: 'Worktrees',
+      hint: "The branches checked out in the worktrees the Worktrees row shows, with that row's filter."
+    }
+  ] as const;
+  const NAMES = {
+    owner: { mine: 'Mine' },
+    state: { unmerged: 'Not merged', merged: 'Merged', stale: 'Stale' },
+    pull: { open: 'PR open', mine: 'My PR', review: 'PR to review', work: 'PR needs work' }
+  } as Record<string, Record<string, string>>;
+  /** The rule in a few words, for the button. */
+  const ruleText = $derived(
+    follow
+      ? `Like ${ROWS.find((r) => r.value === follow)!.label}`
+      : (['owner', 'state', 'pull'] as const)
+          .map((k) => criteria[k] && NAMES[k][criteria[k]])
+          .filter(Boolean)
+          .join(' · ')
   );
+  const base = $derived(app.data?.compare?.base);
+  const label = $derived(
+    app.rule
+      ? `${ruleText} (${app.ruleResult?.matched ?? '…'})`
+      : [
+          app.branches.length === 0
+            ? 'Show All'
+            : app.branches.length === 1
+              ? app.branches[0]
+              : `${app.branches.length} shown`,
+          app.hidden.length && `${app.hidden.length} hidden`
+        ]
+          .filter(Boolean)
+          .join(' · ')
+  );
+  const setCriterion = (key: keyof RuleCriteria, value: string | undefined) =>
+    app.setRule({ ...criteria, [key]: value } as RuleCriteria);
 
   function toggle(name: string) {
     app.setBranches(
@@ -60,6 +160,26 @@
   const iconOf = (r: RefSummary) =>
     r.ref.worktree ? FolderGit2 : r.ref.kind === 'remote' ? Cloud : GitBranch;
 </script>
+
+{#snippet pill(p: Pill, on: boolean, pick: () => void)}
+  <Tip hint={p.hint} side="bottom">
+    {#snippet children(trigger)}
+      <button
+        {...trigger}
+        type="button"
+        disabled={p.disabled}
+        aria-pressed={on}
+        onclick={pick}
+        class={cn(
+          'rounded-full border px-2 py-px text-[12px] whitespace-nowrap hover:bg-accent disabled:pointer-events-none disabled:opacity-50',
+          on ? 'border-ring bg-accent font-medium' : 'border-input text-muted-foreground'
+        )}
+      >
+        {p.label}
+      </button>
+    {/snippet}
+  </Tip>
+{/snippet}
 
 <Popover.Root>
   <Popover.Trigger>
@@ -79,12 +199,67 @@
       </Button>
     {/snippet}
   </Popover.Trigger>
-  <Popover.Content class="w-96 p-0" align="start">
+  <Popover.Content class="w-[30rem] p-0" align="start">
+    <div class="space-y-1.5 border-b p-2">
+      <div class="flex items-center justify-between">
+        <span class="text-xs font-medium text-muted-foreground"
+          >Show in the graph only branches…</span
+        >
+        {#if app.rule}
+          <button
+            type="button"
+            class="flex items-center gap-0.5 rounded-sm px-1 text-[12px] text-link hover:underline"
+            onclick={() => app.setRule(null)}
+          >
+            <X class="size-3" /> Clear
+          </button>
+        {/if}
+      </div>
+      {#each GROUPS as g (g.key)}
+        <div class="flex items-center gap-1">
+          <span class="w-24 shrink-0 text-[12px] text-muted-foreground">{g.label}</span>
+          <div class="flex flex-wrap gap-1">
+            {#each g.pills as p (p.label)}
+              {@render pill(p, !follow && criteria[g.key] === p.value, () =>
+                setCriterion(g.key, p.value)
+              )}
+            {/each}
+          </div>
+        </div>
+      {/each}
+      <div class="flex items-center gap-1 border-t pt-1.5">
+        <span class="w-24 shrink-0 text-[12px] text-muted-foreground">Or like the row</span>
+        <div class="flex flex-wrap gap-1">
+          {#each ROWS as r (r.value)}
+            {@render pill(
+              { ...r, disabled: r.value === 'pulls' && !github },
+              follow === r.value,
+              () => app.setRule(follow === r.value ? null : { follow: r.value })
+            )}
+          {/each}
+        </div>
+      </div>
+      {#if app.rule && app.ruleResult}
+        <p class="rounded-sm bg-muted px-2 py-1 text-[12px]">
+          {#if app.ruleResult.matched}
+            <span class="font-medium"
+              >{app.ruleResult.matched} branch{app.ruleResult.matched === 1 ? '' : 'es'}</span
+            >
+            in the graph{base ? `, with ${base} for context` : ''}.
+          {:else}
+            No branch matches{base ? `: the graph shows ${base} alone` : ''}.
+          {/if}
+          {#if app.loadingBranchDetails}
+            <span class="text-muted-foreground">More may match as branches load…</span>
+          {/if}
+        </p>
+      {/if}
+    </div>
     <ActionMenu>
       {#snippet children(open)}
         <Command.Root>
           <Command.Input placeholder="Filter branches…" class="h-8 text-[13px] md:text-[13px]" />
-          <Command.List class="max-h-96">
+          <Command.List class="max-h-80">
             <Command.Empty>No branches.</Command.Empty>
             <Command.Item
               value="__all"
@@ -92,7 +267,10 @@
               onSelect={() => app.showAllBranches()}
             >
               <Check
-                class={cn('size-4', (app.branches.length || app.hidden.length) && 'invisible')}
+                class={cn(
+                  'size-4',
+                  (app.branches.length || app.hidden.length || app.rule) && 'invisible'
+                )}
               />
               Show All
             </Command.Item>

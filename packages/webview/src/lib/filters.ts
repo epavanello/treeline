@@ -287,3 +287,82 @@ export function worktreeMatches(
 
 /** What a cleanup may remove: not the main worktree, not the one this graph shows. */
 export const removable = (w: Worktree) => !w.main && !w.current && !w.prunable;
+
+/**
+ * The branch picker's filters: the graph shows the branches a rule lets through, kept up to date as
+ * branch details, pull requests and the rows' filters change. Either criteria, combined (every one
+ * set must hold), or `follow`: a row's own filter (what that row shows is what the graph shows).
+ */
+export interface RuleCriteria {
+  owner?: 'mine';
+  state?: 'unmerged' | 'merged' | 'stale';
+  /** It has a pull request that is open, opened by you, asking for your review, or needing work. */
+  pull?: 'open' | 'mine' | 'review' | 'work';
+}
+export type GraphRule = { follow: 'branches' | 'pulls' | 'worktrees' } | RuleCriteria;
+
+/** A rule from before criteria (or nothing at all): dropped. */
+export const validRule = (r: unknown): GraphRule | null =>
+  r && typeof r === 'object' && !('label' in r) && Object.keys(r).length ? (r as GraphRule) : null;
+
+const PULL_CRITERIA: Record<NonNullable<RuleCriteria['pull']>, Partial<PullFilter>> = {
+  open: {},
+  mine: { owner: 'mine' },
+  review: { owner: 'review' },
+  work: { needs: 'work' }
+};
+
+export interface RuleInput {
+  data: GraphData;
+  ctx: Context;
+  /** The rows' filters, for `follow`. */
+  branchFilter: BranchFilter;
+  pullFilter: PullFilter;
+  worktreeFilter: WorktreeFilter;
+  worktreeDetails: Record<string, WorktreeDetails | null | undefined>;
+  /** The GitHub login pull requests were read with (empty: not read). */
+  viewer: string;
+}
+
+/**
+ * The branch names a rule shows, both copies of each branch (the remote one may be ahead), plus the
+ * compare base for context. `matched` 0: nothing matches, and the graph shows the base alone (an
+ * empty list would show every branch).
+ */
+export function ruleBranches(rule: GraphRule, i: RuleInput): { names: string[]; matched: number } {
+  const rows = branchRows(i.data);
+  const byPulls = (f: PullFilter) =>
+    i.viewer
+      ? i.ctx.pulls.filter((p) => pullMatches(p, f, i.viewer, rows)).map((p) => pullRow(p, rows))
+      : [];
+  let picked: (BranchRow | undefined)[];
+  if ('follow' in rule) {
+    if (rule.follow === 'branches') picked = filterBranches(i.data, i.branchFilter, i.ctx);
+    else if (rule.follow === 'pulls') picked = byPulls(i.pullFilter);
+    else {
+      const of = (b: string) => rows.find((row) => row.local?.ref.name === b);
+      picked = i.data.worktrees
+        .filter((w) => w.branch)
+        .filter((w) =>
+          worktreeMatches(w, i.worktreeFilter, i.worktreeDetails[w.path] ?? undefined, i.ctx)
+        )
+        .map((w) => of(w.branch!));
+    }
+  } else {
+    const f = { ...DEFAULT_BRANCH_FILTER, scope: 'all' as const, ...rule, text: '' };
+    picked = filterBranches(i.data, f, i.ctx);
+    if (rule.pull) {
+      const withPull = new Set(
+        byPulls({ ...DEFAULT_PULL_FILTER, ...PULL_CRITERIA[rule.pull] }).map(
+          (row) => row && primary(row).ref.name
+        )
+      );
+      picked = picked.filter((row) => row && withPull.has(primary(row).ref.name));
+    }
+  }
+  const found = new Map(picked.flatMap((row) => (row ? [[primary(row).ref.name, row]] : [])));
+  const names = new Set([...found.values()].flatMap((row) => sides(row).map((r) => r.ref.name)));
+  const base = i.ctx.base ?? i.data.currentBranch;
+  if (base) names.add(base);
+  return { names: [...names], matched: found.size };
+}

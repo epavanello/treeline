@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+- The branch picker filters the graph like the rows filter their chips: pick whose branches (mine),
+  their state (not merged, merged, stale) and their pull request (open, mine, to review, needs work),
+  combined, or show what the Branches, Pull Requests or Worktrees row shows, following its filter.
+  The branches that match are ticked at the top of the list; the compare base is always shown too.
+
 ## 0.13.0
 
 - The Branches, Worktrees and Pull Requests filters have a search field: paste a branch name (or a

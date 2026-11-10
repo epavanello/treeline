@@ -16,6 +16,8 @@ import {
   pullRow,
   pullsOf,
   removable,
+  ruleBranches,
+  type RuleInput,
   worktreeMatches,
   type Context
 } from './filters';
@@ -278,5 +280,54 @@ describe('pull request filters', () => {
   it('finds the open ones waiting on their author', () => {
     // A merged one with open conversations needs nothing anymore
     expect(shown({ needs: 'work', state: 'any' })).toEqual([2, 4]);
+  });
+});
+
+describe('graph rules', () => {
+  const input: RuleInput = {
+    data: {
+      ...data,
+      worktrees: [{ path: '/w', branch: 'theirs', status: { changes: 2 } }]
+    } as GraphData,
+    ctx,
+    branchFilter: { ...DEFAULT_BRANCH_FILTER, owner: 'mine' },
+    pullFilter: DEFAULT_PULL_FILTER,
+    worktreeFilter: { ...DEFAULT_WORKTREE_FILTER, state: 'changes' },
+    worktreeDetails: {},
+    viewer: 'ada'
+  };
+  const run = (rule: Parameters<typeof ruleBranches>[0], i = input) => ruleBranches(rule, i);
+
+  it('shows both copies of each branch a preset lets through, and the base', () => {
+    expect(run({ state: 'unmerged' })).toEqual({
+      names: ['mine', 'origin/mine', 'origin/team', 'origin/main'],
+      matched: 2
+    });
+    // Remote-only branches count too
+    expect(run({ owner: 'mine' }).names).toContain('origin/merged');
+  });
+
+  it('combines criteria: every one set must hold', () => {
+    // mine has an open pull request; origin/team, unmerged too, has none
+    expect(run({ state: 'unmerged', pull: 'open' }).names).toEqual([
+      'mine',
+      'origin/mine',
+      'origin/main'
+    ]);
+    expect(run({ owner: 'mine', state: 'merged' }).matched).toBe(1);
+  });
+
+  it("follows a row's own filter", () => {
+    expect(run({ follow: 'branches' }).matched).toBe(2);
+    expect(run({ follow: 'worktrees' }).names).toEqual(['theirs', 'origin/main']);
+    // Open pull requests: mine's
+    expect(run({ follow: 'pulls' }).names).toEqual(['mine', 'origin/mine', 'origin/main']);
+  });
+
+  it('shows the base alone when nothing matches, and no pull requests without GitHub', () => {
+    expect(run({ pull: 'open' }, { ...input, viewer: '' })).toEqual({
+      names: ['origin/main'],
+      matched: 0
+    });
   });
 });

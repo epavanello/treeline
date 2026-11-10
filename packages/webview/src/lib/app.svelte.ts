@@ -29,7 +29,10 @@ import {
   DEFAULT_PULL_FILTER,
   DEFAULT_WORKTREE_FILTER,
   isBase,
+  ruleBranches,
+  validRule,
   type BranchFilter,
+  type GraphRule,
   type BranchRow,
   type Context,
   type PullFilter,
@@ -65,6 +68,7 @@ interface RepoView {
   branchFilter: BranchFilter;
   worktreeFilter: WorktreeFilter;
   pullFilter: PullFilter;
+  rule: GraphRule | null;
 }
 
 /** All webview state in one place. Components read it directly. */
@@ -74,6 +78,11 @@ class App {
   branches = $state<string[]>([]);
   /** Branches left out of "all" (see GraphQuery.hidden). */
   hidden = $state<string[]>([]);
+  /**
+   * An aggregate filter from the branch picker: while set, `branches` follows what it lets through
+   * (see `ruleBranches`). Ticking or hiding a branch by hand drops it.
+   */
+  rule = $state<GraphRule | null>(null);
   authors = $state<string[]>([]);
   /** Every author seen in this repo's loaded commits, for the author filter. */
   knownAuthors = $state<string[]>([]);
@@ -155,8 +164,40 @@ class App {
     base: this.data?.compare?.base,
     now: Date.now() / 1000
   });
+  /** What `rule` shows now, and how many branches it matched. */
+  ruleResult = $derived(
+    this.rule && this.data
+      ? ruleBranches(this.rule, {
+          data: this.data,
+          ctx: this.filterContext,
+          branchFilter: this.branchFilter,
+          pullFilter: this.pullFilter,
+          worktreeFilter: this.worktreeFilter,
+          worktreeDetails: this.worktreeDetails,
+          viewer: this.pulls?.status === 'ok' ? this.pulls.viewer : ''
+        })
+      : null
+  );
   /** A context menu is open: tooltips stay hidden meanwhile (see ActionMenu, Tip). */
   menuOpen = $state(false);
+
+  constructor() {
+    $effect.root(() => {
+      // A rule's branches change as details and pull requests load: follow them, a batch at a time
+      $effect(() => {
+        const names = this.ruleResult?.names;
+        if (!names) return;
+        const shown = new Set(this.branches);
+        if (names.length === shown.size && names.every((n) => shown.has(n))) return;
+        const t = setTimeout(() => {
+          this.branches = names;
+          this.maxCommits = PAGE;
+          void this.reload();
+        }, 300);
+        return () => clearTimeout(t);
+      });
+    });
+  }
   /**
    * What a reload you asked for is busy with (a filter changed, a commit being looked up): the list
    * dims under it. Reloads after changes on disk stay quiet.
@@ -259,6 +300,7 @@ class App {
         label: 'Show it',
         run: async () => {
           [this.authors, this.branches, this.hidden, this.focus] = [[], [], [], []];
+          this.rule = null;
           this.showRemotes = this.showTags = true;
           this.maxCommits = PAGE;
           this.notice = null;
@@ -622,6 +664,7 @@ class App {
       showStashes: this.showStashes,
       showWorktrees: this.showWorktrees,
       base: this.base,
+      rule: this.rule,
       // The text filters are a lookup of the moment: never reopen with chips hidden by one
       branchFilter: { ...this.branchFilter, text: '' },
       worktreeFilter: { ...this.worktreeFilter, text: '' },
@@ -639,6 +682,7 @@ class App {
     this.showStashes = saved?.showStashes ?? true;
     this.showWorktrees = saved?.showWorktrees ?? true;
     this.base = saved?.base ?? null;
+    this.rule = validRule(saved?.rule);
     this.branchFilter = { ...DEFAULT_BRANCH_FILTER, ...saved?.branchFilter, text: '' };
     this.worktreeFilter = { ...DEFAULT_WORKTREE_FILTER, ...saved?.worktreeFilter, text: '' };
     this.pullFilter = { ...DEFAULT_PULL_FILTER, ...saved?.pullFilter, text: '' };
@@ -733,6 +777,7 @@ class App {
   }
 
   setBranches(branches: string[]) {
+    this.rule = null;
     this.branches = branches;
     // A branch can't be both shown on purpose and hidden
     this.hidden = this.hidden.filter((b) => !branches.includes(b));
@@ -760,12 +805,21 @@ class App {
 
   /** Hide a branch from "all", or bring it back. */
   toggleHidden(name: string) {
+    this.rule = null;
     this.hidden = this.hidden.includes(name)
       ? this.hidden.filter((b) => b !== name)
       : [...this.hidden, name];
     this.branches = this.branches.filter((b) => b !== name);
     this.maxCommits = PAGE;
     void this.reload();
+  }
+
+  /** Shows the branches an aggregate filter lets through (null: every branch again). */
+  setRule(rule: GraphRule | null) {
+    rule = validRule(rule && Object.fromEntries(Object.entries(rule).filter(([, v]) => v)));
+    if (!rule) return this.setBranches([]);
+    this.rule = rule;
+    this.persist();
   }
 
   /** Back to every branch: nothing picked, nothing hidden. */
