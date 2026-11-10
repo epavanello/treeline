@@ -50,7 +50,11 @@ branch with main, review diffs with working language features, juggle worktrees 
    right-click `worktreeItems()` in `menus.ts`; its age is `lastActive()`, the later of its HEAD's
    commit and `Worktree.created`: the birth time of the `.git` file `git worktree add` writes), the local branches and the tags (`RefStrip`, from
    `GraphData.heads/tags`, most recent first; local branches only, to keep the team's noise out). The toolbar's
-   `BranchPicker` covers every branch (`heads` + `remoteHeads`). Branch chips, picker rows and graph badges
+   `BranchPicker` covers every branch (`heads` + `remoteHeads`). Its **filters** on top (`GraphRule` in `filters.ts`, `app.rule`, persisted in
+   `RepoView`): criteria as pills (`RuleCriteria`: owner, state, pull request; combined) or "like the
+   row" (`follow`: that row's own filter, live). While set, an `$effect` keeps `app.branches` =
+   `ruleBranches()`: both copies of every matching branch plus the compare base, listed "In the graph";
+   ticking or hiding a branch by hand drops the rule. Branch chips, picker rows and graph badges
    share `BranchState` (`RefSummary.vsBase`: ahead/behind the compare base by hash, one
    `for-each-ref --format=%(ahead-behind:<base>)`, git 2.41+; cloud icons for the upstream), the `RefCard`
    hover card and the ref's context menu. **Hidden branches** (`GraphQuery.hidden`, the opposite of
