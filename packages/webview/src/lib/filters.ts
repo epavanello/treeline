@@ -326,7 +326,7 @@ export interface RuleInput {
 
 /**
  * The branch names a rule shows, both copies of each branch (the remote one may be ahead), plus the
- * compare base for context. `matched` 0: nothing matches, and the graph shows the base alone (an
+ * compare base (local and remote) for context. `matched` 0: nothing matches, and the graph shows the base alone (an
  * empty list would show every branch).
  */
 export function ruleBranches(rule: GraphRule, i: RuleInput): { names: string[]; matched: number } {
@@ -362,7 +362,10 @@ export function ruleBranches(rule: GraphRule, i: RuleInput): { names: string[]; 
   }
   const found = new Map(picked.flatMap((row) => (row ? [[primary(row).ref.name, row]] : [])));
   const names = new Set([...found.values()].flatMap((row) => sides(row).map((r) => r.ref.name)));
+  // The base for context, both copies (main and origin/main), whoever's they are
   const base = i.ctx.base ?? i.data.currentBranch;
   if (base) names.add(base);
+  for (const row of rows)
+    for (const r of sides(row)) if (isBase(r, i.ctx.base)) names.add(r.ref.name);
   return { names: [...names], matched: found.size };
 }

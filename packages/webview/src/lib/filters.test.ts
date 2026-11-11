@@ -300,7 +300,7 @@ describe('graph rules', () => {
 
   it('shows both copies of each branch a preset lets through, and the base', () => {
     expect(run({ state: 'unmerged' })).toEqual({
-      names: ['mine', 'origin/mine', 'origin/team', 'origin/main'],
+      names: ['mine', 'origin/mine', 'origin/team', 'origin/main', 'main'],
       matched: 2
     });
     // Remote-only branches count too
@@ -312,21 +312,22 @@ describe('graph rules', () => {
     expect(run({ state: 'unmerged', pull: 'open' }).names).toEqual([
       'mine',
       'origin/mine',
-      'origin/main'
+      'origin/main',
+      'main'
     ]);
     expect(run({ owner: 'mine', state: 'merged' }).matched).toBe(1);
   });
 
   it("follows a row's own filter", () => {
     expect(run({ follow: 'branches' }).matched).toBe(2);
-    expect(run({ follow: 'worktrees' }).names).toEqual(['theirs', 'origin/main']);
+    expect(run({ follow: 'worktrees' }).names).toEqual(['theirs', 'origin/main', 'main']);
     // Open pull requests: mine's
-    expect(run({ follow: 'pulls' }).names).toEqual(['mine', 'origin/mine', 'origin/main']);
+    expect(run({ follow: 'pulls' }).names).toEqual(['mine', 'origin/mine', 'origin/main', 'main']);
   });
 
   it('shows the base alone when nothing matches, and no pull requests without GitHub', () => {
     expect(run({ pull: 'open' }, { ...input, viewer: '' })).toEqual({
-      names: ['origin/main'],
+      names: ['origin/main', 'main'],
       matched: 0
     });
   });

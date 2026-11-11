@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.14.1
+
+- The branch picker's filters keep the default branch in the graph with both its copies (`master` and
+  `origin/master`), even when it isn't yours or has no pull request.
+
 ## 0.14.0
 
 - The branch picker filters the graph like the rows filter their chips: pick whose branches (mine),
