@@ -225,7 +225,7 @@ class App {
     /** Something is loading meanwhile. */
     busy?: boolean;
   } | null>(null);
-  /** `actionTarget`s of the actions whose git commands are running (host `busy` events). */
+  /** `actionTargets` of the actions whose git commands are running (host `busy` events). */
   running = $state<string[]>([]);
 
   graph = $derived(layout(this.data?.commits ?? []));
@@ -617,9 +617,7 @@ class App {
     onHostEvent((e) => {
       if (e.event === 'refresh') void this.refresh();
       else if (e.event === 'busy')
-        this.running = e.busy
-          ? [...this.running, e.key]
-          : this.running.filter((k, i) => i !== this.running.indexOf(e.key));
+        this.running = e.busy ? [...this.running, ...e.keys] : without(this.running, e.keys);
       else if (e.event === 'theme') {
         resetHighlighter();
         this.themeVersion++;
@@ -994,3 +992,13 @@ export const sessionDetail = (s: ClaudeSession, why: string) =>
   ]
     .filter(Boolean)
     .join(' · ');
+
+/** `list` less one occurrence of each of `keys`: two actions on the same target each count. */
+function without(list: string[], keys: string[]) {
+  const rest = [...list];
+  for (const k of keys) {
+    const i = rest.indexOf(k);
+    if (i >= 0) rest.splice(i, 1);
+  }
+  return rest;
+}

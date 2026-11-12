@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { actionTarget, type Action, type Settings } from '@treeline/shared';
+import { actionTargets, type Action, type Settings } from '@treeline/shared';
 import { runAction } from './actions';
 import { BranchDetailsCache } from './branchDetails';
 import { hasClaude, Summaries } from './claude';
@@ -47,18 +47,18 @@ export async function activate(ctx: vscode.ExtensionContext) {
   ]);
   /** Every action goes through here: shown as busy once its prompts are answered, then a reload. */
   const run = async (repo: string, action: Action) => {
-    const key = actionTarget(action);
+    const keys = actionTargets(action);
     const began = Date.now();
     let started = false;
     try {
       await runAction(git, repo, action, () => {
         started = true;
-        GraphPanel.post({ event: 'busy', key, busy: true });
+        GraphPanel.post({ event: 'busy', keys, busy: true });
       });
     } finally {
-      if (started) GraphPanel.post({ event: 'busy', key, busy: false });
+      if (started) GraphPanel.post({ event: 'busy', keys, busy: false });
       if (started && touchesRemote.has(action.type)) pulls.invalidate(repo);
-      if (started) log.info(`${action.type} ${key}: done in ${Date.now() - began} ms, reloading`);
+      if (started) log.info(`${action.type} ${keys.join(' ')}: done in ${Date.now() - began} ms, reloading`);
       refresh();
     }
   };

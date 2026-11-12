@@ -4,7 +4,7 @@
  * fixture.json and logs everything else.
  */
 import {
-  actionTarget,
+  actionTargets,
   UNCOMMITTED,
   DEFAULT_VIEW,
   type Action,
@@ -230,8 +230,8 @@ const summaries = new Map<string, string>();
       case 'run': {
         // Pretend git takes a while, so the busy spinners can be seen
         const action = args[1] as Action;
-        const key = actionTarget(action);
-        window.postMessage({ event: 'busy', key, busy: true }, '*');
+        const keys = actionTargets(action);
+        window.postMessage({ event: 'busy', keys, busy: true }, '*');
         return setTimeout(() => {
           // Deletions really happen, then the graph reloads, as with the extension
           const gone =
@@ -252,7 +252,7 @@ const summaries = new Map<string, string>();
                 (r: { name: string }) => !gone.includes(r.name)
               );
           }
-          window.postMessage({ event: 'busy', key, busy: false }, '*');
+          window.postMessage({ event: 'busy', keys, busy: false }, '*');
           reply(id, undefined);
           window.postMessage({ event: 'refresh' }, '*');
         }, 2000);

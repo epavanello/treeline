@@ -539,30 +539,33 @@ export type HostEvent =
   | { event: 'theme' }
   /** `getSettings` may have changed: the setting, or the editor's language models. */
   | { event: 'settings' }
-  /** An action's git commands started (after its prompts) or finished; `key` is its `actionTarget`. */
-  | { event: 'busy'; key: string; busy: boolean };
+  /** An action's git commands started (after its prompts) or finished; `keys` are its `actionTargets`. */
+  | { event: 'busy'; keys: string[]; busy: boolean };
 
 /**
  * What an action works on, so the UI can show it as busy: a worktree path, a ref name, a stash,
  * a commit hash, `UNCOMMITTED` for the working tree, or the action type for repository-wide ones.
+ * Actions on several things name the action type (for the button that started them) and each of them.
  */
-export function actionTarget(a: Action): string {
+export function actionTargets(a: Action): string[] {
   switch (a.type) {
     case 'stashPush':
     case 'unstageAll':
     case 'discardAll':
-      return UNCOMMITTED;
+      return [UNCOMMITTED];
     case 'fetch':
     case 'pruneWorktrees':
     case 'newWorktree':
+      return [a.type];
     case 'deleteBranches':
+      return [a.type, ...a.local, ...a.remote.map((r) => r.name)];
     case 'removeWorktrees':
-      return a.type;
+      return [a.type, ...a.paths];
   }
-  if ('path' in a) return a.path;
-  if ('selector' in a) return a.selector;
-  if ('name' in a) return a.name;
-  return 'hash' in a ? a.hash : a.target;
+  if ('path' in a) return [a.path];
+  if ('selector' in a) return [a.selector];
+  if ('name' in a) return [a.name];
+  return ['hash' in a ? a.hash : a.target];
 }
 
 const relative = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });

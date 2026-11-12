@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.2
+
+- Deleting a branch here and on the remote at once, or removing worktrees from the cleanup button, now
+  shows a spinner on each branch or worktree going away, not only on the button.
+- A branch chip also spins while only its remote copy is being deleted.
+
 ## 0.14.1
 
 - The branch picker's filters keep the default branch in the graph with both its copies (`master` and

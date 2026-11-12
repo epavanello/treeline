@@ -229,7 +229,7 @@
                 oncontextmenu={(e) =>
                   open(e, menuItems({ kind: 'ref', ref: r.ref, commit: refCommit(r) }))}
               >
-                {#if app.isRunning(r.ref.name, r.ref.worktree)}
+                {#if app.isRunning(r.ref.name, r.ref.worktree, row?.remote?.ref.name)}
                   <LoaderCircle class="size-3.5 shrink-0 animate-spin" />
                 {:else}
                   <Icon class="size-3.5 shrink-0" />
