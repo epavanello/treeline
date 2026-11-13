@@ -752,8 +752,14 @@ class App {
       else if (this.pullPanel) {
         // A pull request's commits don't change with the repository: new pushes come with loadPulls
       } else if (this.selected) {
-        const still = data.commits.find((c) => c.hash === this.selected!.hash);
-        if (still) void this.select(still);
+        const find = (c: Commit | null) => c && data.commits.find((x) => x.hash === c.hash);
+        const [still, other] = [find(this.selected), find(this.compareWith)];
+        if (still && other) {
+          // Two commits compared: still both there, kept (the working tree's side may have changed)
+          this.selected = still;
+          this.compareWith = other;
+          if ([still.hash, other.hash].includes(UNCOMMITTED)) void this.select(other, true);
+        } else if (still && !this.compareWith) void this.select(still);
         else this.closeDetails();
       }
     } catch (e) {

@@ -105,16 +105,21 @@
     void host.openDiff({ repo, file: $state.snapshot(file), ...range });
   }
 
+  /**
+   * What the panel shows, as a string: a refresh rebuilds `range` (and the selection) as new objects
+   * with the same revisions, and only a real change may reset the scroll and the shown file.
+   */
+  const showing = $derived(`${repo}\0${range.from}\0${range.to}`);
   /** The file list or diff: back to its top when it shows other changes. */
   let right = $state<HTMLElement>();
   /** The list's or tree's file shown in the third column, as an inline diff. */
   let shown = $state<FileChange | null>(null);
   $effect(() => {
-    void [repo, range.from, range.to];
+    void showing;
     if (right) right.scrollTop = 0;
   });
   $effect(() => {
-    void [repo, range.from, range.to];
+    void showing;
     shown = null;
   });
   /** Still among the files (a refresh may have dropped it): as it is now. */

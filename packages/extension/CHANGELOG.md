@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.3
+
+- The details panel no longer jumps back to the top and closes the file you were reading whenever the
+  repository refreshes in the background (a save, a git command, another tool).
+- Two commits compared in the details panel stay compared after a refresh.
+
 ## 0.14.2
 
 - Deleting a branch here and on the remote at once, or removing worktrees from the cleanup button, now
