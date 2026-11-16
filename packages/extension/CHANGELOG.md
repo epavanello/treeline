@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.4
+
+- The Worktrees row starts with the main worktree (a house icon), then the one this window shows (highlighted), then the others by latest activity, set apart by a divider: you see at a glance whether you're in the main folder or a secondary one.
+
 ## 0.14.3
 
 - The details panel no longer jumps back to the top and closes the file you were reading whenever the

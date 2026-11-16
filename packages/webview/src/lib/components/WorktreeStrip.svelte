@@ -3,6 +3,7 @@
   import {
     FolderGit2,
     GitCommitHorizontal,
+    House,
     LoaderCircle,
     Plus,
     Recycle,
@@ -37,15 +38,15 @@
   import WorktreeState from './WorktreeState.svelte';
 
   /**
-   * Every worktree of the repository, one chip each, filtered from the title: the one this graph
-   * shows first, then the main one, then the others by their latest commit, like the branches. (git
+   * Every worktree of the repository, one chip each, filtered from the title: the main one first,
+   * then the one this graph shows, then the others by their latest activity, like the branches. (git
    * lists them main first, then by folder name: `data.worktrees` keeps that order, which the
    * actions rely on.)
    */
   const all = $derived(
     [...(app.data?.worktrees ?? [])].sort(
       (a, b) =>
-        +b.current - +a.current || +b.main - +a.main || (lastActive(b) ?? 0) - (lastActive(a) ?? 0)
+        +b.main - +a.main || +b.current - +a.current || (lastActive(b) ?? 0) - (lastActive(a) ?? 0)
     )
   );
   const f = $derived(app.worktreeFilter);
@@ -60,6 +61,8 @@
   const cleanup = $derived(CLEANUP.worktrees.includes(f.state) ? worktrees.filter(removable) : []);
   const base = $derived(app.data?.compare?.base ?? 'the base');
   const folder = (path: string) => path.split(/[\\/]/).pop();
+  /** Main and current come first: a divider after them sets them apart from the rest. */
+  const pinned = (w: { main: boolean; current: boolean }) => w.main || w.current;
   /** The branch it has checked out, as the branch row knows it (a stand-in when detached). */
 </script>
 
@@ -160,7 +163,10 @@
             Remove {cleanup.length}
           </Button>
         {/if}
-        {#each worktrees as w (w.path)}
+        {#each worktrees as w, i (w.path)}
+          {#if i > 0 && pinned(worktrees[i - 1]) && !pinned(w)}
+            <span class="h-4 w-px shrink-0 bg-border" aria-hidden="true"></span>
+          {/if}
           {@const r = app.worktreeSummary(w)}
           {@const pr =
             w.branch && app.rowOf.get(w.branch)
@@ -192,7 +198,7 @@
                 })}
                 class={cn(
                   'flex h-6 max-w-[28rem] shrink-0 items-center gap-1.5 rounded-sm border px-2 hover:bg-accent data-menu-open:bg-accent',
-                  w.current && 'border-ring',
+                  w.current && 'border-ring bg-accent/60',
                   app.worktreeDetails[w.path]?.compare?.rewritten && 'border-dirty'
                 )}
               >
@@ -202,6 +208,9 @@
                   <TriangleAlert class="size-3.5 shrink-0 text-dirty" />
                 {:else if w.prunable}
                   <TriangleAlert class="size-3.5 shrink-0 text-destructive" />
+                {:else if w.main}
+                  <!-- The main worktree, the one owning .git: a house, so it's told apart at a glance -->
+                  <House class="size-3.5 shrink-0" />
                 {:else}
                   <FolderGit2 class="size-3.5 shrink-0" />
                 {/if}
