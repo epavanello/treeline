@@ -221,6 +221,35 @@ describe('compare with a base branch', () => {
     run('branch', '-D', 'rebased');
   });
 
+  it('leaves merge commits out of ahead and behind', async () => {
+    // A branch that merged the base in, then landed on it as a rebased copy through a merged PR:
+    // the merges on either side are never copies, yet bring nothing of their own
+    const repo = mkdtempSync(join(tmpdir(), 'treeline-merges-'));
+    const sh = (...args: string[]) => execFileSync('git', args, { cwd: repo }).toString();
+    const commit = (file: string) => {
+      writeFileSync(join(repo, file), `${file}\n`);
+      sh('add', file);
+      sh('commit', '-q', '-m', `Add ${file}`);
+    };
+    sh('init', '-q', '-b', 'main');
+    sh('config', 'user.name', 'Ada');
+    sh('config', 'user.email', 'ada@example.com');
+    commit('start');
+    sh('checkout', '-q', '-b', 'feat');
+    commit('feature');
+    sh('checkout', '-q', 'main');
+    commit('other');
+    sh('checkout', '-q', 'feat');
+    sh('merge', '-q', '--no-edit', 'main');
+    sh('checkout', '-q', '-b', 'pr', 'main');
+    sh('cherry-pick', 'feat^');
+    sh('checkout', '-q', 'main');
+    sh('merge', '-q', '--no-ff', '--no-edit', 'pr');
+    sh('checkout', '-q', 'feat');
+    const g = await git.getGraph(query({ repo, base: 'main' }));
+    expect(g.compare).toMatchObject({ ahead: 0, behind: 0, same: 1 });
+  });
+
   it('flags a rewritten history: most commits are copies of the base', async () => {
     // A repository of its own: a few more commits, then main's history copied commit by commit
     // (same trees and messages, new hashes), as filter-repo or a forced rebase would

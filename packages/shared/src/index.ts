@@ -96,9 +96,9 @@ export interface Compare {
   base: string;
   /** The commit the base points to. */
   baseHash: string;
-  /** Commits on HEAD whose changes are not on the base. */
+  /** Commits on HEAD whose changes are not on the base. Merge commits aren't counted. */
   ahead: number;
-  /** Commits on the base whose changes are not on HEAD. */
+  /** Commits on the base whose changes are not on HEAD. Merge commits aren't counted. */
   behind: number;
   /**
    * Commits on HEAD whose changes are already on the base under another hash: the branch was

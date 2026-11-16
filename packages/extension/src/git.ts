@@ -395,9 +395,13 @@ export class Git {
   ): Promise<(Compare & { sides: Map<string, Side> }) | null> {
     base ??= await this.resolveBase(repo, refs);
     if (!base) return null;
-    // --cherry-mark tells the commits whose changes are on both sides (rebased, cherry-picked) with '='
+    // --cherry-mark tells the commits whose changes are on both sides (rebased, cherry-picked) with '=';
+    // --parents tells the merges
     const side = (only: string) =>
-      this.try(this.exec(repo, ['rev-list', '--cherry-mark', only, `HEAD...${base}`, '--']), null);
+      this.try(
+        this.exec(repo, ['rev-list', '--cherry-mark', '--parents', only, `HEAD...${base}`, '--']),
+        null
+      );
     const [mine, theirs, mergeBase, baseHash] = await Promise.all([
       side('--left-only'),
       side('--right-only'),
@@ -418,8 +422,12 @@ export class Git {
       [theirs, 'behind']
     ] as const)
       for (const l of lines(list)) {
+        const [hash, ...parents] = l.slice(1).split(' ');
         const s = l[0] === '=' ? 'same' : unique;
-        sides.set(l.slice(1), s);
+        sides.set(hash, s);
+        // A merge is never marked as a copy, even when all it brings is: counting merges made a
+        // branch merged as rebased copies look ahead, and behind by the base's own merges
+        if (parents.length > 1) continue;
         if (s !== 'same' || unique === 'ahead') count[s]++;
       }
     const mergeBaseDate = mergeBase

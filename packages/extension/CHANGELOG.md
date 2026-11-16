@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.5
+
+- Ahead/behind against the base no longer counts merge commits: a branch that merged the base in and then landed as rebased copies ("rebase and merge", a rebased PR) now shows as already in the base instead of several commits ahead and behind.
+
 ## 0.14.4
 
 - The Worktrees row starts with the main worktree (a house icon), then the one this window shows (highlighted), then the others by latest activity, set apart by a divider: you see at a glance whether you're in the main folder or a secondary one.
